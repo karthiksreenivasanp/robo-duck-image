@@ -18,6 +18,16 @@ Requires Android 10 or newer.
 2. On the sending phone, turn the media volume up, tap **Send** and pick a picture.
 3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 1-2 minutes.
 4. The picture appears line by line and is saved to `Pictures/RoboDuck`.
+5. Tap **Clear image** to clean it up. The cleared copy is saved next to the
+   original (`..._clear.jpg`), and the button switches between the two.
+
+## Clear image
+
+The same steps you would run by hand in ImageJ, built into the app (ImageJ
+itself is a desktop program and cannot run on Android): Remove Outliers,
+JPEG deblocking, 4x bicubic scaling, bilateral smoothing, a gentle Unsharp
+Mask and a capped Enhance Contrast. It smooths blockiness and speckles; it
+cannot add detail that was never sent.
 
 ## How it works
 

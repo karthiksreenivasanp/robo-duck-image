@@ -19,4 +19,11 @@
     <string name="mic_needed">Microphone access needed</string>
     <string name="mic_failed">Microphone unavailable</string>
     <string name="open_failed">Could not open image</string>
+    <string name="clear">Clear image</string>
+    <string name="show_original">Show original</string>
+    <string name="show_cleared">Show cleared</string>
+    <string name="clearing">Clearing</string>
+    <string name="cleared">Cleared and saved</string>
+    <string name="cleared_not_saved">Cleared</string>
+    <string name="original">Original</string>
 </resources>

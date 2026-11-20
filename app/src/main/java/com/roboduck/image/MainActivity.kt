@@ -22,6 +22,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import com.roboduck.image.enhance.Enhancer
 import com.roboduck.image.modem.ChirpDecoder
 import com.roboduck.image.modem.ChirpEncoder
 import kotlin.math.roundToInt
@@ -36,12 +37,19 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var sendButton: Button
     private lateinit var receiveButton: Button
+    private lateinit var clearButton: Button
 
     private val ui = Handler(Looper.getMainLooper())
     private var mode = Mode.IDLE
     private var player: Player? = null
     private var recorder: Recorder? = null
     private var lowVolume = false
+
+    // "Clear image": original received picture, its cleared version, which one is shown.
+    private var received: Bitmap? = null
+    private var cleared: Bitmap? = null
+    private var showingCleared = false
+    private var clearing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,6 +70,7 @@ class MainActivity : Activity() {
         status = findViewById(R.id.status)
         sendButton = findViewById(R.id.send)
         receiveButton = findViewById(R.id.receive)
+        clearButton = findViewById(R.id.clear)
 
         val root = findViewById<View>(R.id.root)
         val pad = root.paddingLeft
@@ -93,14 +102,60 @@ class MainActivity : Activity() {
                 else -> {}
             }
         }
+        clearButton.setOnClickListener { onClearClicked() }
         render()
         setStatus(getString(R.string.ready))
+    }
+
+    // ---------- Clear image ----------
+
+    private fun onClearClicked() {
+        if (mode != Mode.IDLE || clearing) return
+        val src = received ?: return
+        val done = cleared
+        if (done != null) {
+            showingCleared = !showingCleared
+            image.setImageBitmap(if (showingCleared) done else src)
+            setStatus(getString(if (showingCleared) R.string.cleared_not_saved else R.string.original))
+            render()
+            return
+        }
+        clearing = true
+        render()
+        setStatus(getString(R.string.clearing))
+        Thread {
+            val w = src.width
+            val h = src.height
+            val px = IntArray(w * h)
+            src.getPixels(px, 0, w, 0, 0, w, h)
+            val res = Enhancer.enhance(px, w, h)
+            val bmp = Bitmap.createBitmap(res.pixels, res.width, res.height, Bitmap.Config.ARGB_8888)
+            val out = java.io.ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            val saved = ImageCodec.save(this, out.toByteArray(), "_clear")
+            ui.post {
+                clearing = false
+                if (received !== src) return@post
+                cleared = bmp
+                showingCleared = true
+                image.setImageBitmap(bmp)
+                setStatus(getString(if (saved) R.string.cleared else R.string.cleared_not_saved))
+                render()
+                haptic()
+            }
+        }.start()
+    }
+
+    private fun forgetReceived() {
+        received = null
+        cleared = null
+        showingCleared = false
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // Follow a dark/light switch right away unless a transfer is running.
-        if (mode == Mode.IDLE) recreate()
+        if (mode == Mode.IDLE && received == null && !clearing) recreate()
     }
 
     override fun onDestroy() {
@@ -129,6 +184,7 @@ class MainActivity : Activity() {
     }
 
     private fun startSend(uri: Uri) {
+        forgetReceived()
         mode = Mode.SENDING
         render()
         progress.isIndeterminate = true
@@ -187,6 +243,7 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
             return
         }
+        forgetReceived()
         mode = Mode.RECEIVING
         render()
         image.setImageDrawable(null)
@@ -227,6 +284,7 @@ class MainActivity : Activity() {
                 ui.post {
                     if (mode != Mode.RECEIVING) return@post
                     bmp?.let { showImage(it) }
+                    received = bmp
                     progress.progress = 100
                     finishMode(
                         getString(
@@ -290,8 +348,17 @@ class MainActivity : Activity() {
     private fun render() {
         sendButton.text = getString(if (mode == Mode.SENDING) R.string.stop else R.string.send)
         receiveButton.text = getString(if (mode == Mode.RECEIVING) R.string.stop else R.string.receive)
-        sendButton.isEnabled = mode != Mode.RECEIVING
-        receiveButton.isEnabled = mode != Mode.SENDING
+        sendButton.isEnabled = mode != Mode.RECEIVING && !clearing
+        receiveButton.isEnabled = mode != Mode.SENDING && !clearing
+        clearButton.visibility = if (mode == Mode.IDLE && received != null) View.VISIBLE else View.INVISIBLE
+        clearButton.isEnabled = !clearing
+        clearButton.text = getString(
+            when {
+                cleared == null -> R.string.clear
+                showingCleared -> R.string.show_original
+                else -> R.string.show_cleared
+            }
+        )
         sendButton.alpha = if (sendButton.isEnabled) 1f else 0.35f
         receiveButton.alpha = if (receiveButton.isEnabled) 1f else 0.35f
         if (mode == Mode.IDLE) {

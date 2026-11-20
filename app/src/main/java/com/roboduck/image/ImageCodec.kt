@@ -71,9 +71,9 @@ object ImageCodec {
     }
 
     /** Saves the exact received bytes as a JPG in Pictures/RoboDuck. */
-    fun save(context: Context, bytes: ByteArray): Boolean {
+    fun save(context: Context, bytes: ByteArray, suffix: String = ""): Boolean {
         val cr = context.contentResolver
-        val name = "roboduck_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".jpg"
+        val name = "roboduck_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + suffix + ".jpg"
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
