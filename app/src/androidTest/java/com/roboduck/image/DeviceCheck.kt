@@ -16,7 +16,6 @@ import com.roboduck.image.modem.ChirpDecoder
 import com.roboduck.image.modem.ChirpEncoder
 import com.roboduck.image.modem.Payload
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -78,32 +77,35 @@ class DeviceCheck {
             val p = ImageCodec.compress(src)
             val ms = SystemClock.elapsedRealtime() - t0
             assertTrue("payload too big", p.payload.size <= ImageCodec.BUDGET)
-            val img = Payload.unpack(p.payload)!!
-            val simple = img.size > 16 && String(img, 12, 4, Charsets.US_ASCII) == "VP8 "
             // similarity to the original, both viewed at 256 px
             val ref = fitTo(src, 256)
             val got = Bitmap.createScaledBitmap(p.preview, ref.width, ref.height, true)
             val score = ImageCodec.ssim(lum(got), lum(ref), ref.width, ref.height)
-            // live preview: decode the first 60% of the bytes
-            val part = img.copyOf(img.size * 6 / 10)
-            val pb = ImageCodec.decodePartial(part)
-            var rows = 0
-            if (pb != null) {
-                for (y in 0 until pb.height) {
-                    var any = false
-                    for (x in 0 until pb.width step 3) if (pb.getPixel(x, y) != 0) { any = true; break }
-                    if (any) rows = y + 1
+            // the receiver's rebuilt file must decode to exactly the sender's preview
+            val full = ImageCodec.decodeQuietly(Payload.unpack(p.payload)!!)
+            val same = full != null && full.sameAs(p.preview)
+            // live preview from the first 60% of the bytes: rows it claims vs rows really right
+            val part = p.payload.copyOf(p.payload.size * 6 / 10)
+            val pv = ImageCodec.previewSoFar(part, p.payload.size)
+            var exactRows = 0
+            if (pv != null && full != null) {
+                val ra = IntArray(full.width); val rb = IntArray(full.width)
+                for (y in 0 until full.height) {
+                    pv.first.getPixels(ra, 0, full.width, 0, y, full.width, 1)
+                    full.getPixels(rb, 0, full.width, 0, y, full.width, 1)
+                    if (!ra.contentEquals(rb)) break
+                    exactRows = y + 1
                 }
             }
-            val est = Payload.visibleFraction(part, part.size + 1, p.payload.size)
             log(
-                "%-13s -> %dx%d px, WebP q%d, %d bytes, similarity %.3f, %d ms, simple VP8=%s | 60%% of bytes shows %s rows (estimate %.0f%%)".format(
-                    name, p.preview.width, p.preview.height, p.quality, p.payload.size, score, ms, simple,
-                    if (pb == null) "NO PREVIEW" else "%.0f%%".format(100f * rows / pb.height), 100 * est
+                "%-13s -> %dx%d px, WebP q%d, sent %d bytes (Android's file %d bytes: %s), similarity %.3f, %d ms | rebuilt = sender's picture: %s | 60%% of bytes: preview %s, claims %.0f%% rows, really exact %.0f%%".format(
+                    name, p.preview.width, p.preview.height, p.quality, p.payload.size, p.fileSize, p.fileChunks, score, ms, same,
+                    if (pv == null) "NONE" else "ok", 100 * (pv?.second ?: 0f), if (full == null) 0f else 100f * exactRows / full.height
                 )
             )
+            assertTrue("rebuilt picture differs", same)
+            if (pv != null) assertTrue("preview claims more rows than are right", pv.second * (full?.height ?: 1) <= exactRows + 0.5f)
             savePng("preview-" + name.substringBefore('.'), Bitmap.createScaledBitmap(p.preview, p.preview.width * 3, p.preview.height * 3, true))
-            assertNotNull("partial decode failed", pb)
         }
     }
 
@@ -216,9 +218,7 @@ class DeviceCheck {
         val suffix = if (dark) "-dark" else "-light"
         log("== Screenshots$suffix")
         val p = ImageCodec.compress(photo("fruits.jpg"))
-        val img = Payload.unpack(p.payload)!!
-        val partial = ImageCodec.decodePartial(img.copyOf(img.size * 55 / 100))!!
-        val shown = Payload.visibleFraction(img.copyOf(img.size * 55 / 100), img.size * 55 / 100 + 1, p.payload.size)
+        val (partial, shown) = ImageCodec.previewSoFar(p.payload.copyOf(p.payload.size * 70 / 100), p.payload.size)!!
         val whistles = IntArray(12) { (it * 37 + 11) % 128 }
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             fun shot(name: String) {
@@ -229,7 +229,7 @@ class DeviceCheck {
             shot("1-ready")
             sc.onActivity { it.demoSending(p.preview, 0.42f) }
             shot("2-sending")
-            sc.onActivity { it.demoReceiving(partial, shown * 0.97f, whistles) }
+            sc.onActivity { it.demoReceiving(partial, shown, whistles) }
             shot("3-receiving")
             sc.onActivity { it.demoReceived(p.preview) }
             shot("4-received")

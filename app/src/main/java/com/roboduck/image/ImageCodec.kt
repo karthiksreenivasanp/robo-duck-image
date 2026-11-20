@@ -16,7 +16,6 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.roboduck.image.modem.Payload
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,7 +49,15 @@ object ImageCodec {
         }
     }
 
-    class Prepared(val preview: Bitmap, val payload: ByteArray, val side: Int, val quality: Int)
+    class Prepared(
+        val preview: Bitmap,
+        val payload: ByteArray,
+        val side: Int,
+        val quality: Int,
+        /** Android's WebP file before trimming, for the on-device check. */
+        val fileSize: Int = 0,
+        val fileChunks: String = ""
+    )
 
     /**
      * Makes the WebP that fits the budget and looks most like the original:
@@ -69,19 +76,22 @@ object ImageCodec {
             var lo = 5
             var hi = 92
             var found: ByteArray? = null
+            var foundPacked: ByteArray? = null
             var foundQ = 0
             while (lo <= hi) {
                 val q = (lo + hi) / 2
                 val d = webp(small, q)
-                if (d.size + 1 <= BUDGET) { found = d; foundQ = q; lo = q + 1 } else hi = q - 1
+                val packed = Payload.packWebp(d)
+                if (packed.size <= BUDGET) { found = d; foundPacked = packed; foundQ = q; lo = q + 1 } else hi = q - 1
             }
             val data = found ?: continue
+            val packed = foundPacked ?: continue
             val decoded = BitmapFactory.decodeByteArray(data, 0, data.size) ?: continue
             val up = Bitmap.createScaledBitmap(decoded, ref.width, ref.height, true)
             val score = ssim(luminance(up), refLum, ref.width, ref.height)
             if (score > bestScore) {
                 bestScore = score
-                best = Prepared(decoded, Payload.packWebp(data), side, foundQ)
+                best = Prepared(decoded, packed, side, foundQ, data.size, Payload.webpChunks(data))
             }
         }
         return best ?: run {
@@ -167,20 +177,45 @@ object ImageCodec {
     }
 
     /**
-     * Decodes as much of a picture as has arrived (for the live preview).
-     * Rows not yet received stay empty.
+     * Live preview from the first part of a transfer: the picture so far, and the
+     * share of its rows (from the top) that are real. The missing end is filled in
+     * two different ways; rows that decode the same both times come from real data.
      */
-    fun decodePartial(bytes: ByteArray): Bitmap? {
-        try {
-            val source = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
-            return ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                decoder.setOnPartialImageListener { true } // keep what decoded so far
-            }
-        } catch (_: Exception) {
+    fun previewSoFar(payloadPrefix: ByteArray, payloadTotal: Int): Pair<Bitmap, Float>? {
+        val zero = Payload.preview(payloadPrefix, payloadTotal, 0) ?: return null
+        val a = decodeQuietly(zero) ?: return null
+        if (!Payload.isWebp(payloadPrefix)) return a to 1f
+        if (payloadPrefix.size >= payloadTotal) return a to 1f
+        for (fill in intArrayOf(0x80, 0x55, 0xAA)) {
+            val other = Payload.preview(payloadPrefix, payloadTotal, fill) ?: continue
+            val b = decodeQuietly(other) ?: continue
+            if (b.width != a.width || b.height != a.height) continue
+            return a to sameRowsFromTop(a, b).toFloat() / a.height
         }
-        return try { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) } catch (_: Exception) { null }
+        // Neither second decode worked: a cautious guess from the bytes received
+        // (rows only start after the frame's first part, the picture's layout).
+        if (payloadPrefix[0].toInt() != Payload.VP8 || payloadPrefix.size < 4) return a to 0f
+        val tag = (payloadPrefix[1].toInt() and 0xFF) or ((payloadPrefix[2].toInt() and 0xFF) shl 8) or
+            ((payloadPrefix[3].toInt() and 0xFF) shl 16)
+        val rowsStart = 1 + 10 + ((tag shr 5) and 0x7FFFF)
+        if (payloadPrefix.size <= rowsStart || payloadTotal <= rowsStart) return a to 0f
+        val f = (payloadPrefix.size - rowsStart).toFloat() / (payloadTotal - rowsStart)
+        return a to (f * 0.6f).coerceIn(0f, 1f)
     }
+
+    private fun sameRowsFromTop(a: Bitmap, b: Bitmap): Int {
+        val ra = IntArray(a.width)
+        val rb = IntArray(a.width)
+        for (y in 0 until a.height) {
+            a.getPixels(ra, 0, a.width, 0, y, a.width, 1)
+            b.getPixels(rb, 0, b.width, 0, y, b.width, 1)
+            if (!ra.contentEquals(rb)) return y
+        }
+        return a.height
+    }
+
+    fun decodeQuietly(bytes: ByteArray): Bitmap? =
+        try { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) } catch (_: Exception) { null }
 
     /** The received picture as a JPG file (high quality, so it looks the same). */
     fun toJpeg(bytes: ByteArray): ByteArray? {

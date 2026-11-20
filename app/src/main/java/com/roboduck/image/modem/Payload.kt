@@ -12,9 +12,12 @@ import java.util.zip.Inflater
  * leaving them out of the sound makes room for a sharper picture in the same
  * time. The receiver gets back the exact same JPG bytes.
  *
- * Format (first byte): 2 = WebP picture (what the app sends now: about 25%
- * smaller than JPEG for the same quality), 1 = JPG deflated with the
- * dictionary, 0 = plain JPG.
+ * Format (first byte):
+ *  3 = the bare picture data of a WebP (its "VP8 " frame). What the app sends:
+ *      WebP is about 25% smaller than JPEG at the same quality, and leaving out
+ *      the file wrapper (and the colour profile Android adds, ~600 bytes)
+ *      leaves room for a sharper picture. The receiver rebuilds the WebP file.
+ *  2 = a whole WebP file, 1 = JPG deflated with the dictionary, 0 = plain JPG.
  */
 object Payload {
 
@@ -23,10 +26,79 @@ object Payload {
     )
 
     const val WEBP = 2
+    const val VP8 = 3
 
-    fun packWebp(webp: ByteArray): ByteArray = byteArrayOf(WEBP.toByte()) + webp
+    /** Keeps only the picture data of a lossy WebP (falls back to the whole file). */
+    fun packWebp(webp: ByteArray): ByteArray {
+        val frame = vp8Frame(webp) ?: return byteArrayOf(WEBP.toByte()) + webp
+        return byteArrayOf(VP8.toByte()) + frame
+    }
 
-    fun isWebp(data: ByteArray) = data.isNotEmpty() && data[0].toInt() == WEBP
+    fun isWebp(data: ByteArray) = data.isNotEmpty() && (data[0].toInt() == WEBP || data[0].toInt() == VP8)
+
+    /** Chunk names and sizes of a WebP file, e.g. "VP8X:10 ICCP:588 VP8 :1964" (for checks). */
+    fun webpChunks(w: ByteArray): String {
+        if (w.size < 12) return "?"
+        val sb = StringBuilder()
+        var i = 12
+        while (i + 8 <= w.size) {
+            val n = le32(w, i + 4)
+            sb.append(String(w, i, 4, Charsets.US_ASCII)).append(':').append(n).append(' ')
+            if (n < 0) break
+            i += 8 + n + (n and 1)
+        }
+        return sb.toString().trim()
+    }
+
+    /** The "VP8 " chunk inside a WebP file, or null. */
+    private fun vp8Frame(w: ByteArray): ByteArray? {
+        if (w.size < 20 || String(w, 0, 4, Charsets.US_ASCII) != "RIFF" ||
+            String(w, 8, 4, Charsets.US_ASCII) != "WEBP"
+        ) return null
+        var i = 12
+        while (i + 8 <= w.size) {
+            val id = String(w, i, 4, Charsets.US_ASCII)
+            val n = le32(w, i + 4)
+            if (n < 0 || i + 8 + n > w.size) return null
+            if (id == "VP8 ") return w.copyOfRange(i + 8, i + 8 + n)
+            i += 8 + n + (n and 1)
+        }
+        return null
+    }
+
+    private fun le32(b: ByteArray, o: Int) = (b[o].toInt() and 0xFF) or ((b[o + 1].toInt() and 0xFF) shl 8) or
+        ((b[o + 2].toInt() and 0xFF) shl 16) or ((b[o + 3].toInt() and 0xFF) shl 24)
+
+    /** Wraps a bare VP8 frame into a minimal WebP file. */
+    private fun riff(frame: ByteArray): ByteArray {
+        val pad = frame.size and 1
+        val out = ByteArray(20 + frame.size + pad)
+        fun put(o: Int, s: String) { for (j in s.indices) out[o + j] = s[j].code.toByte() }
+        fun put32(o: Int, v: Int) { for (j in 0 until 4) out[o + j] = (v shr (8 * j)).toByte() }
+        put(0, "RIFF"); put32(4, 12 + frame.size + pad); put(8, "WEBP")
+        put(12, "VP8 "); put32(16, frame.size)
+        frame.copyInto(out, 20)
+        return out
+    }
+
+    /**
+     * A decodable picture from the first part of a transfer, for the live preview:
+     * the missing end is filled with [fill] bytes so the decoder sees a whole file.
+     * Rows decoded from real data come out exact; rows below are junk (decode with
+     * two different fills and keep the rows that agree to know exactly which).
+     */
+    fun preview(data: ByteArray, payloadTotal: Int, fill: Int = 0): ByteArray? {
+        if (data.isEmpty()) return null
+        return when (data[0].toInt()) {
+            VP8, WEBP -> {
+                val body = ByteArray(maxOf(payloadTotal, data.size) - 1)
+                data.copyInto(body, 0, 1, data.size)
+                if (fill != 0) java.util.Arrays.fill(body, data.size - 1, body.size, fill.toByte())
+                if (data[0].toInt() == VP8) riff(body) else body
+            }
+            else -> unpack(data)
+        }
+    }
 
     fun pack(jpg: ByteArray): ByteArray {
         val d = Deflater(Deflater.BEST_COMPRESSION, true)
@@ -51,6 +123,7 @@ object Payload {
      */
     fun unpack(data: ByteArray): ByteArray? {
         if (data.isEmpty()) return null
+        if (data[0].toInt() == VP8) return riff(data.copyOfRange(1, data.size))
         if (data[0].toInt() == 0 || data[0].toInt() == WEBP) return data.copyOfRange(1, data.size)
         if (data[0].toInt() != 1) return null
         val inf = Inflater(true)

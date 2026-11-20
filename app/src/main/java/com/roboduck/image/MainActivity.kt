@@ -283,9 +283,7 @@ class MainActivity : Activity() {
             }
 
             override fun onPartial(data: ByteArray) {
-                val img = Payload.unpack(data) ?: return
-                val bmp = ImageCodec.decodePartial(img) ?: return
-                val shown = Payload.visibleFraction(img, data.size, expectedBytes) * 0.97f
+                val (bmp, shown) = ImageCodec.previewSoFar(data, expectedBytes) ?: return
                 ui.post { if (mode == Mode.RECEIVING) live.setImage(bmp, shown) }
             }
 
@@ -293,7 +291,7 @@ class MainActivity : Activity() {
                 val img = Payload.unpack(data)
                 if (!ok) {
                     // Keep listening: the same picture sent again fills the gaps.
-                    val partial = img?.let { ImageCodec.decodePartial(it) }
+                    val partial = img?.let { ImageCodec.decodeQuietly(it) }
                     ui.post {
                         if (mode != Mode.RECEIVING) return@post
                         if (partial != null) live.setImage(partial, 1f)
