@@ -18,16 +18,28 @@ Requires Android 10 or newer.
 2. On the sending phone, turn the media volume up, tap **Send** and pick a picture.
 3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 1-2 minutes.
 4. The picture appears line by line and is saved to `Pictures/RoboDuck`.
-5. Tap **Clear image** to clean it up. The cleared copy is saved next to the
-   original (`..._clear.jpg`), and the button switches between the two.
+5. After a picture arrives, the picture tools appear:
+   **Auto**, **Sharpen**, **Smooth**, **Contrast**, **Denoise**, **Undo**,
+   **Original** and **Save** (saves the edited copy as `..._edit.jpg`).
 
-## Clear image
+## Picture tools (ImageJ)
 
-The same steps you would run by hand in ImageJ, built into the app (ImageJ
-itself is a desktop program and cannot run on Android): Remove Outliers,
-JPEG deblocking, 4x bicubic scaling, bilateral smoothing, a gentle Unsharp
-Mask and a capped Enhance Contrast. It smooths blockiness and speckles; it
-cannot add detail that was never sent.
+ImageJ itself is a desktop program and cannot run on Android, so its filter
+code is ported in `enhance/ImageJ.kt` (ImageJ is public domain). Each filter
+was checked against the original ImageJ and gives the same pixels:
+
+| Button | ImageJ command |
+|---|---|
+| Sharpen | Process > Filters > Unsharp Mask (radius 2, weight 0.6) |
+| Smooth | Process > Filters > Gaussian Blur (sigma 1.5) |
+| Contrast | Process > Enhance Contrast (0.35% saturated) |
+| Denoise | Process > Noise > Remove Outliers + Process > Filters > Median |
+| (all) | Image > Scale, bicubic, 4x before editing |
+
+**Auto** combines Remove Outliers, bicubic scaling and Unsharp Mask with this
+app's own JPEG deblocking and edge-preserving smoothing, and a gentler contrast
+stretch. The tools make a picture look clearer; they cannot add detail that was
+never sent.
 
 ## How it works
 

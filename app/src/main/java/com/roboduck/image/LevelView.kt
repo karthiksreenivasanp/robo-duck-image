@@ -19,7 +19,7 @@ class LevelView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     var active = false
         set(value) {
             field = value
-            paint.color = context.getColor(if (value) R.color.fg else R.color.line)
+            paint.color = context.getColor(if (value) R.color.accent_deep else R.color.line)
             if (!value) levels.fill(0f)
             invalidate()
         }

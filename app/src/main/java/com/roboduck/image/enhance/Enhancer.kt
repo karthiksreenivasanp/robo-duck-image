@@ -1,168 +1,104 @@
 package com.roboduck.image.enhance
 
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.exp
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
+/** An RGB picture as three float channels (0..255), the way ImageJ filters RGB. */
+class RgbImage(val width: Int, val height: Int, val r: FloatArray, val g: FloatArray, val b: FloatArray) {
+
+    fun copy() = RgbImage(width, height, r.copyOf(), g.copyOf(), b.copyOf())
+
+    inline fun eachChannel(op: (FloatArray) -> Unit) { op(r); op(g); op(b) }
+
+    fun toArgb(): IntArray = IntArray(width * height) {
+        (0xFF shl 24) or (c(r[it]) shl 16) or (c(g[it]) shl 8) or c(b[it])
+    }
+
+    private fun c(v: Float) = v.roundToInt().coerceIn(0, 255)
+
+    companion object {
+        fun fromArgb(argb: IntArray, width: Int, height: Int): RgbImage {
+            val n = width * height
+            val r = FloatArray(n); val g = FloatArray(n); val b = FloatArray(n)
+            for (i in 0 until n) {
+                val p = argb[i]
+                r[i] = ((p shr 16) and 0xFF).toFloat()
+                g[i] = ((p shr 8) and 0xFF).toFloat()
+                b[i] = (p and 0xFF).toFloat()
+            }
+            return RgbImage(width, height, r, g, b)
+        }
+    }
+}
+
 /**
- * "Clear image": the same steps you would run by hand in ImageJ, applied
- * in order to a received picture (plain Kotlin, no Android dependencies).
- *
- *  1. Process > Noise > Remove Outliers (radius 1, threshold 40, bright + dark)
- *     removes speckles left by audio errors.
- *  2. Image > Scale with bicubic interpolation (4x) gives a smooth, larger image.
- *     (before scaling, a JPEG deblocking pass smooths small steps on the 8 px grid)
- *  3. Bilateral filter (ImageJ plugin) smooths flat areas, keeps edges.
- *  4. Process > Filters > Unsharp Mask (gentle) brings edges back.
- *  5. Process > Enhance Contrast (0.35% saturated), capped so colours stay true.
- *
- * It makes the picture look clearer; it cannot recover detail that was
- * never sent.
+ * The picture tools behind the buttons. ImageJ filters come from [ImageJ];
+ * the JPEG deblocking and bilateral smoothing in Auto are this app's own.
+ * They make a picture look clearer; they cannot recover detail that was never sent.
  */
 object Enhancer {
 
-    class Result(val pixels: IntArray, val width: Int, val height: Int)
+    /** Received pictures are about 128 px; tools work on a 4x larger copy. */
+    const val SCALE = 4
 
-    fun enhance(argb: IntArray, w: Int, h: Int, scale: Int = 4): Result {
-        var r = FloatArray(w * h)
-        var g = FloatArray(w * h)
-        var b = FloatArray(w * h)
-        for (i in argb.indices) {
-            val p = argb[i]
-            r[i] = ((p shr 16) and 0xFF).toFloat()
-            g[i] = ((p shr 8) and 0xFF).toFloat()
-            b[i] = (p and 0xFF).toFloat()
-        }
-
-        r = removeOutliers(r, w, h, 40f)
-        g = removeOutliers(g, w, h, 40f)
-        b = removeOutliers(b, w, h, 40f)
-
-        deblock(r, w, h); deblock(g, w, h); deblock(b, w, h)
-
-        val ow = w * scale
-        val oh = h * scale
-        r = bicubic(r, w, h, ow, oh)
-        g = bicubic(g, w, h, ow, oh)
-        b = bicubic(b, w, h, ow, oh)
-
-        val smoothed = bilateral(r, g, b, ow, oh, radius = scale, sigmaS = scale * 0.6f, sigmaR = 14f)
-        r = smoothed[0]; g = smoothed[1]; b = smoothed[2]
-
-        val sharpSigma = 0.4f * scale
-        r = unsharp(r, ow, oh, sharpSigma, 0.3f)
-        g = unsharp(g, ow, oh, sharpSigma, 0.3f)
-        b = unsharp(b, ow, oh, sharpSigma, 0.3f)
-
-        stretchContrast(r, g, b, 0.35f)
-
-        val out = IntArray(ow * oh)
-        for (i in out.indices) {
-            out[i] = (0xFF shl 24) or (clamp(r[i]) shl 16) or (clamp(g[i]) shl 8) or clamp(b[i])
-        }
-        return Result(out, ow, oh)
+    /** Image > Scale (bicubic), unless the picture is already large. */
+    fun upscale(img: RgbImage): RgbImage {
+        if (img.width >= 300 || img.height >= 300) return img.copy()
+        val w = img.width * SCALE
+        val h = img.height * SCALE
+        return RgbImage(
+            w, h,
+            ImageJ.resizeBicubic(img.r, img.width, img.height, w, h),
+            ImageJ.resizeBicubic(img.g, img.width, img.height, w, h),
+            ImageJ.resizeBicubic(img.b, img.width, img.height, w, h)
+        )
     }
 
-    private fun clamp(v: Float): Int = v.roundToInt().coerceIn(0, 255)
-
-    /** Replaces a pixel by its 3x3 median when it differs by more than [threshold]. */
-    fun removeOutliers(src: FloatArray, w: Int, h: Int, threshold: Float): FloatArray {
-        val out = src.copyOf()
-        val win = FloatArray(9)
-        for (y in 0 until h) for (x in 0 until w) {
-            var n = 0
-            for (dy in -1..1) for (dx in -1..1) {
-                val xx = (x + dx).coerceIn(0, w - 1)
-                val yy = (y + dy).coerceIn(0, h - 1)
-                win[n++] = src[yy * w + xx]
-            }
-            win.sort()
-            val median = win[4]
-            val v = src[y * w + x]
-            if (abs(v - median) > threshold) out[y * w + x] = median
-        }
+    /** One-tap clean-up of the original received picture. */
+    fun auto(original: RgbImage): RgbImage {
+        val small = original.copy()
+        small.eachChannel { ImageJ.removeOutliers(it, small.width, small.height, 1.0, 40f) }
+        small.eachChannel { deblock(it, small.width, small.height) }
+        val big = upscale(small)
+        val s = bilateral(big.r, big.g, big.b, big.width, big.height, radius = SCALE, sigmaS = SCALE * 0.6f, sigmaR = 14f)
+        val out = RgbImage(big.width, big.height, s[0], s[1], s[2])
+        out.eachChannel { ImageJ.unsharpMask(it, out.width, out.height, 0.4 * SCALE, 0.3f) }
+        gentleContrast(out)
         return out
     }
 
-    private fun cubic(t: Float): Float {
-        // Catmull-Rom style kernel, a = -0.5 (as ImageJ's bicubic).
-        val a = -0.5f
-        val x = abs(t)
-        return when {
-            x <= 1f -> (a + 2f) * x * x * x - (a + 3f) * x * x + 1f
-            x < 2f -> a * x * x * x - 5f * a * x * x + 8f * a * x - 4f * a
-            else -> 0f
+    /** Process > Filters > Unsharp Mask (ImageJ's default weight 0.6). */
+    fun sharpen(img: RgbImage): RgbImage = img.copy().also { o ->
+        o.eachChannel { ImageJ.unsharpMask(it, o.width, o.height, 2.0, 0.6f) }
+    }
+
+    /** Process > Filters > Gaussian Blur. */
+    fun smooth(img: RgbImage): RgbImage = img.copy().also { o ->
+        o.eachChannel { ImageJ.gaussianBlur(it, o.width, o.height, 1.5) }
+    }
+
+    /** Process > Enhance Contrast, 0.35% saturated (ImageJ's default). */
+    fun contrast(img: RgbImage): RgbImage = img.copy().also { o ->
+        ImageJ.enhanceContrast(o.r, o.g, o.b, 0.35)
+    }
+
+    /** Process > Noise > Remove Outliers, then Process > Filters > Median. */
+    fun denoise(img: RgbImage): RgbImage = img.copy().also { o ->
+        o.eachChannel {
+            ImageJ.removeOutliers(it, o.width, o.height, 2.0, 30f)
+            ImageJ.median(it, o.width, o.height, 2.0)
         }
     }
 
-    fun bicubic(src: FloatArray, w: Int, h: Int, ow: Int, oh: Int): FloatArray {
-        val out = FloatArray(ow * oh)
-        val sx = w.toFloat() / ow
-        val sy = h.toFloat() / oh
-        for (y in 0 until oh) {
-            val fy = (y + 0.5f) * sy - 0.5f
-            val iy = floor(fy).toInt()
-            val ty = fy - iy
-            for (x in 0 until ow) {
-                val fx = (x + 0.5f) * sx - 0.5f
-                val ix = floor(fx).toInt()
-                val tx = fx - ix
-                var sum = 0f
-                for (m in -1..2) {
-                    val wy = cubic(m - ty)
-                    val yy = (iy + m).coerceIn(0, h - 1)
-                    for (n in -1..2) {
-                        val xx = (ix + n).coerceIn(0, w - 1)
-                        sum += src[yy * w + xx] * wy * cubic(n - tx)
-                    }
-                }
-                out[y * ow + x] = sum
-            }
-        }
-        return out
-    }
-
-    fun gaussian(src: FloatArray, w: Int, h: Int, sigma: Float): FloatArray {
-        if (sigma <= 0f) return src.copyOf()
-        val radius = ceil(sigma * 3).toInt().coerceAtLeast(1)
-        val k = FloatArray(radius * 2 + 1)
-        var total = 0f
-        for (i in -radius..radius) {
-            k[i + radius] = exp(-(i * i) / (2f * sigma * sigma))
-            total += k[i + radius]
-        }
-        for (i in k.indices) k[i] /= total
-        val tmp = FloatArray(w * h)
-        for (y in 0 until h) for (x in 0 until w) {
-            var s = 0f
-            for (i in -radius..radius) s += src[y * w + (x + i).coerceIn(0, w - 1)] * k[i + radius]
-            tmp[y * w + x] = s
-        }
-        val out = FloatArray(w * h)
-        for (y in 0 until h) for (x in 0 until w) {
-            var s = 0f
-            for (i in -radius..radius) s += tmp[(y + i).coerceIn(0, h - 1) * w + x] * k[i + radius]
-            out[y * w + x] = s
-        }
-        return out
-    }
-
-    /** ImageJ's unsharp mask: (original - weight * blurred) / (1 - weight). */
-    fun unsharp(src: FloatArray, w: Int, h: Int, sigma: Float, weight: Float): FloatArray {
-        val blur = gaussian(src, w, h, sigma)
-        return FloatArray(src.size) { (src[it] - weight * blur[it]) / (1f - weight) }
-    }
-
-    /** ImageJ "Enhance Contrast": saturate [saturated]% of pixels, split between both ends. */
-    fun stretchContrast(r: FloatArray, g: FloatArray, b: FloatArray, saturated: Float) {
+    /** Like Enhance Contrast, but the stretch is capped so colours stay natural. */
+    private fun gentleContrast(img: RgbImage) {
         val hist = IntArray(256)
-        for (i in r.indices) {
-            val lum = (0.299f * r[i] + 0.587f * g[i] + 0.114f * b[i]).roundToInt().coerceIn(0, 255)
+        for (i in img.r.indices) {
+            val lum = (0.299f * img.r[i] + 0.587f * img.g[i] + 0.114f * img.b[i]).roundToInt().coerceIn(0, 255)
             hist[lum]++
         }
-        val clip = (r.size * saturated / 200f).toInt()
+        val clip = (img.r.size * 0.35f / 200f).toInt()
         var lo = 0
         var acc = 0
         while (lo < 255 && acc + hist[lo] <= clip) { acc += hist[lo]; lo++ }
@@ -171,13 +107,9 @@ object Enhancer {
         while (hi > 0 && acc + hist[hi] <= clip) { acc += hist[hi]; hi-- }
         if (hi - lo < 16) return
         val s = minOf(255f / (hi - lo), 1.15f)
-        val mid = (hi + lo) / 2f
         if (s <= 1.001f) return
-        for (i in r.indices) {
-            r[i] = mid + (r[i] - mid) * s
-            g[i] = mid + (g[i] - mid) * s
-            b[i] = mid + (b[i] - mid) * s
-        }
+        val mid = (hi + lo) / 2f
+        img.eachChannel { ch -> for (i in ch.indices) ch[i] = mid + (ch[i] - mid) * s }
     }
 
     /** Smooths small steps across 8 px JPEG block borders; real edges are left alone. */

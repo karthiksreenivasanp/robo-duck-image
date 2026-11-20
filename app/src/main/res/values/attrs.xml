@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="neoFill" format="color" />
+    <attr name="neoOffset" format="dimension" />
+    <attr name="neoRadius" format="dimension" />
+    <declare-styleable name="NeoButton">
+        <attr name="neoFill" />
+        <attr name="neoOffset" />
+        <attr name="neoRadius" />
+    </declare-styleable>
+    <declare-styleable name="NeoFrame">
+        <attr name="neoFill" />
+        <attr name="neoOffset" />
+        <attr name="neoRadius" />
+    </declare-styleable>
+</resources>

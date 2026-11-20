@@ -1,105 +1,230 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
-    android:gravity="center_horizontal"
     android:orientation="vertical"
-    android:padding="28dp">
+    android:paddingStart="24dp"
+    android:paddingTop="16dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="20dp">
+
+    <!-- Header: logo + name -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/logo" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:fontFamily="@font/bagel_fat_one"
+            android:includeFontPadding="false"
+            android:text="@string/app_name"
+            android:textAllCaps="true"
+            android:textColor="@color/ink"
+            android:textSize="24sp" />
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:minHeight="12dp" />
 
-    <com.roboduck.image.SquareFrame
+    <!-- Picture card -->
+    <com.roboduck.image.NeoFrame
         android:id="@+id/frame"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/frame">
+        android:layout_height="wrap_content">
+
+        <ImageView
+            android:id="@+id/placeholder"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:alpha="0.13"
+            android:importantForAccessibility="no"
+            android:padding="64dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/logo" />
 
         <ImageView
             android:id="@+id/image"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/surface"
             android:importantForAccessibility="no"
-            android:scaleType="fitCenter" />
-    </com.roboduck.image.SquareFrame>
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+    </com.roboduck.image.NeoFrame>
 
-    <com.roboduck.image.LevelView
-        android:id="@+id/level"
+    <!-- Live feedback while sending or receiving -->
+    <LinearLayout
+        android:id="@+id/meter"
         android:layout_width="match_parent"
-        android:layout_height="28dp"
-        android:layout_marginTop="32dp" />
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
 
-    <ProgressBar
-        android:id="@+id/progress"
-        style="@android:style/Widget.Material.ProgressBar.Horizontal"
-        android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:layout_marginTop="24dp"
-        android:indeterminateTint="@color/fg"
-        android:max="100"
-        android:maxHeight="3dp"
-        android:minHeight="3dp"
-        android:progressDrawable="@drawable/progress" />
+        <com.roboduck.image.LevelView
+            android:id="@+id/level"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:layout_marginTop="20dp" />
+
+        <com.roboduck.image.NeoProgress
+            android:id="@+id/progress"
+            android:layout_width="match_parent"
+            android:layout_height="16dp"
+            android:layout_marginTop="16dp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="14dp"
         android:accessibilityLiveRegion="polite"
+        android:fontFamily="@font/space_grotesk_bold"
         android:gravity="center"
         android:singleLine="true"
         android:textColor="@color/muted"
         android:textSize="15sp" />
 
-    <Button
-        android:id="@+id/clear"
-        style="@style/PillButton"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:layout_marginTop="12dp"
-        android:background="@drawable/button_text"
-        android:minWidth="0dp"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:textColor="@color/fg"
-        android:textSize="14sp"
-        android:visibility="invisible" />
+    <!-- Picture tools, shown after a picture is received -->
+    <LinearLayout
+        android:id="@+id/tools"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_auto"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/tool_auto"
+                android:textColor="@color/on_accent"
+                app:neoFill="@color/accent" />
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_sharpen"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/tool_sharpen" />
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_smooth"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/tool_smooth" />
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_contrast"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_weight="1"
+                android:text="@string/tool_contrast" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_denoise"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/tool_denoise" />
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_undo"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/tool_undo" />
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_original"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/tool_original" />
+
+            <com.roboduck.image.NeoButton
+                android:id="@+id/tool_save"
+                style="@style/NeoChip"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_weight="1"
+                android:text="@string/tool_save"
+                android:textColor="@color/bg"
+                app:neoFill="@color/ink" />
+        </LinearLayout>
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:minHeight="16dp" />
 
+    <!-- Main actions -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
-        <Button
+        <com.roboduck.image.NeoButton
             android:id="@+id/send"
-            style="@style/PillButton"
+            style="@style/NeoMain"
             android:layout_width="0dp"
-            android:layout_height="56dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="12dp"
             android:layout_weight="1"
-            android:background="@drawable/button_filled"
-            android:textColor="@color/bg" />
+            android:textColor="@color/on_accent"
+            app:neoFill="@color/accent" />
 
-        <Space
-            android:layout_width="12dp"
-            android:layout_height="1dp" />
-
-        <Button
+        <com.roboduck.image.NeoButton
             android:id="@+id/receive"
-            style="@style/PillButton"
+            style="@style/NeoMain"
             android:layout_width="0dp"
-            android:layout_height="56dp"
+            android:layout_height="64dp"
             android:layout_weight="1"
-            android:background="@drawable/button_outline"
-            android:textColor="@color/fg" />
+            app:neoFill="@color/surface" />
     </LinearLayout>
 </LinearLayout>

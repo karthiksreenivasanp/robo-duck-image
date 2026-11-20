@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#FAFAFA</color>
-    <color name="surface">#F2F2F2</color>
-    <color name="fg">#111111</color>
-    <color name="muted">#7C7C7C</color>
-    <color name="line">#E2E2E2</color>
-    <color name="ripple">#33888888</color>
+    <!-- Taken from the RoboDuck logo: white face, black pixel outline, lime beak. -->
+    <color name="bg">#F3F6EC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="ink">#111111</color>
+    <color name="shadow">#111111</color>
+    <color name="muted">#5D6356</color>
+    <color name="line">#D5DACD</color>
+    <color name="accent">#A8F03E</color>
+    <color name="accent_deep">#5BC21C</color>
+    <color name="on_accent">#111111</color>
     <color name="icon_bg">#FFFFFF</color>
 </resources>
