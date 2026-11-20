@@ -7,11 +7,13 @@ import kotlin.math.sin
 /**
  * Sound design and framing shared by sender and receiver.
  *
- * Each symbol is a 23 ms whistle that sweeps up or down across 1.9-6.9 kHz
+ * Each symbol is a 23 ms whistle that sweeps up or down across 1.7-5.9 kHz
  * with a little warble (vibrato), starting at one of 32 points of the sweep:
  * 1 bit for the direction + 5 bits for the start point = 6 bits per whistle.
  * Data is sent in short phrases of 5-13 whistles separated by little pauses,
- * which gives the R2-D2 style "chatter".
+ * which gives the R2-D2 style "chatter". Every phrase starts with the same
+ * rising "bweep" ([PHRASE_SYNC]); the receiver uses it to get back in step
+ * if either phone's audio skipped or stalled for a moment.
  */
 object Chirp {
     const val SAMPLE_RATE = 44100
@@ -20,8 +22,8 @@ object Chirp {
     const val L = 1024                    // samples per chirp
     const val SHIFTS = 32                 // start points per direction
     const val STEP = L / SHIFTS           // 32 samples per shift
-    const val F_LOW = 1900.0
-    const val BANDWIDTH = 5000.0          // sweeps 1.9 kHz <-> 6.9 kHz
+    const val F_LOW = 1700.0
+    const val BANDWIDTH = 4200.0          // sweeps 1.7 kHz <-> 5.9 kHz
     const val F_HIGH = F_LOW + BANDWIDTH
     private const val VIB_DEPTH = 90.0    // Hz of warble
     private const val VIB_RATE = 86.0     // warbles per second (2 per whistle)
@@ -32,6 +34,9 @@ object Chirp {
     private val PHRASE_END = IntArray(PHRASE.size).also { var c = 0; for (i in PHRASE.indices) { c += PHRASE[i]; it[i] = c } }
     private val CYCLE = PHRASE.sum()
     const val FADE = 140                  // samples of fade at each phrase edge
+    const val PHRASE_SYNC = 0             // the "bweep" that opens every phrase
+    const val FIRST_PAUSE = 1500          // pause between the header and the first phrase
+    const val RESYNC_RANGE = 960          // how far (samples) the receiver looks for a phrase start
 
     // Framing
     const val PREAMBLE = 10
@@ -78,6 +83,18 @@ object Chirp {
                 }
             }
         }
+    }
+
+    /** Seconds of whistling for the data part of a [byteLen]-byte picture (for "time left"). */
+    fun dataSeconds(byteLen: Int): Double {
+        val n = codewordCount(byteLen) * CW_LEN
+        var samples = FIRST_PAUSE.toLong() + L          // first pause + first "bweep"
+        for (i in 0 until n) {
+            samples += L
+            val p = pauseAfter(i)
+            if (p > 0 && i < n - 1) samples += p + L     // pause + next phrase's "bweep"
+        }
+        return samples.toDouble() / SAMPLE_RATE
     }
 
     fun dataSymbolCount(byteLen: Int): Int = (byteLen * 8 + BITS - 1) / BITS

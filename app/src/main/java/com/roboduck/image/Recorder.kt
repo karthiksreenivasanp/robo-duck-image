@@ -5,6 +5,10 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
+import android.os.Process
 import com.roboduck.image.modem.Chirp
 import com.roboduck.image.modem.ChirpDecoder
 import kotlin.math.sqrt
@@ -29,6 +33,7 @@ class Recorder(
 
     @SuppressLint("MissingPermission")
     override fun run() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val rate = Chirp.SAMPLE_RATE
         // Raw mic if the phone offers it; otherwise the speech-recognition path,
         // which also skips most noise suppression and auto gain.
@@ -55,6 +60,15 @@ class Recorder(
             return
         }
 
+        // Phones' voice filters treat steady whistles as noise and fade them out: turn them off.
+        val session = rec.audioSessionId
+        val effects = listOfNotNull(
+            if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(session) else null,
+            if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(session) else null,
+            if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(session) else null
+        )
+        effects.forEach { try { it.enabled = false } catch (_: Exception) {} }
+
         val shorts = ShortArray(2048)
         val floats = FloatArray(2048)
         try {
@@ -74,6 +88,7 @@ class Recorder(
             }
         } finally {
             try { rec.stop() } catch (_: Exception) {}
+            effects.forEach { try { it.release() } catch (_: Exception) {} }
             rec.release()
         }
     }

@@ -53,6 +53,7 @@ class ChirpDecoder(private val listener: Listener) {
     private var dataSymbols = IntArray(0)
     private var dataCount = 0
     private var weakRun = 0
+    private var needResync = false
 
     fun feed(samples: FloatArray, count: Int = samples.size) {
         if (len + count > data.size) {
@@ -63,6 +64,12 @@ class ChirpDecoder(private val listener: Listener) {
         process()
     }
 
+    // Diagnostics: corrected symbols and failed codewords in the last transmission.
+    private var fixedSymbols = 0
+    private var failedCodewords = 0
+    private var totalCodewords = 0
+    fun stats() = "fixed=$fixedSymbols failedCW=$failedCodewords/$totalCodewords"
+
     fun reset() {
         state = State.SEARCH
         runK = -1
@@ -71,7 +78,7 @@ class ChirpDecoder(private val listener: Listener) {
     }
 
     private fun process() {
-        while (end >= pos + Chirp.L + 8) {
+        while (end >= pos + Chirp.L + 8 + (if (state == State.DATA && needResync) Chirp.RESYNC_RANGE + 8 else 0)) {
             when (state) {
                 State.SEARCH -> search()
                 State.PRE -> preamble()
@@ -196,15 +203,39 @@ class ChirpDecoder(private val listener: Listener) {
         dataSymbols = IntArray(cwCount * Chirp.DATA_PER_CW)
         dataCount = 0
         weakRun = 0
+        pos += Chirp.FIRST_PAUSE
+        needResync = true
         state = State.DATA
+        fixedSymbols = 0; failedCodewords = 0; totalCodewords = 0
         listener.onStart(byteLen)
     }
 
+    /** Finds the phrase-opening "bweep" near [pos] and steps past it, back in time with the sender. */
+    private fun resync() {
+        var bestD = 0
+        var bestE = -1.0
+        var d = -Chirp.RESYNC_RANGE
+        while (d <= Chirp.RESYNC_RANGE) {
+            val e = energy(Chirp.PHRASE_SYNC, pos + d)
+            if (e > bestE) { bestE = e; bestD = d }
+            d += 4
+        }
+        val coarse = bestD
+        for (f in coarse - 3..coarse + 3) {
+            val e = energy(Chirp.PHRASE_SYNC, pos + f)
+            if (e > bestE) { bestE = e; bestD = f }
+        }
+        pos += bestD + Chirp.L
+        needResync = false
+    }
+
     private fun dataStep() {
+        if (needResync) { resync(); return }
         val r = readSymbol()
         collected.add(r.k)
         received++
-        pos += Chirp.pauseAfter(received - 1)
+        val pause = Chirp.pauseAfter(received - 1)
+        if (pause > 0) { pos += pause; needResync = true }
         weakRun = if (r.ratio < WEAK) weakRun + 1 else 0
         if (weakRun >= LOST_AFTER) {
             listener.onLost()
@@ -219,7 +250,11 @@ class ChirpDecoder(private val listener: Listener) {
 
         for (row in 0 until size) {
             val cw = IntArray(Chirp.CW_LEN) { col -> collected[col * size + row] }
-            val fixed = rs.decode(cw) ?: cw.copyOf(Chirp.DATA_PER_CW)
+            val dec = rs.decode(cw)
+            totalCodewords++
+            if (dec == null) failedCodewords++
+            else for (i in 0 until Chirp.DATA_PER_CW) if (dec[i] != cw[i]) fixedSymbols++
+            val fixed = dec ?: cw.copyOf(Chirp.DATA_PER_CW)
             fixed.copyInto(dataSymbols, dataCount)
             dataCount += Chirp.DATA_PER_CW
         }

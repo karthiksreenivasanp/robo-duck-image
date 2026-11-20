@@ -7,7 +7,7 @@ import kotlin.math.sin
 /** Turns bytes into a mono float waveform (range -1..1) at [Chirp.SAMPLE_RATE]. */
 object ChirpEncoder {
 
-    private const val AMP = 0.85f
+    private const val AMP = 0.75f
 
     fun encode(bytes: ByteArray): FloatArray {
         require(bytes.size in 1..0x3FFFF) { "size out of range" }
@@ -49,18 +49,31 @@ object ChirpEncoder {
             }
             rs.encode(block)
         }
-        val headerEnd = symbols.size
+        // Data in phrases: a "bweep" first, then the whistles, then a pause.
+        val data2 = ArrayList<Int>()
         val groups = (cwCount + Chirp.GROUP - 1) / Chirp.GROUP
         for (g in 0 until groups) {
             val size = Chirp.groupSize(cwCount, g)
             for (col in 0 until Chirp.CW_LEN) for (row in 0 until size) {
-                symbols.add(codewords[g * Chirp.GROUP + row][col])
+                data2.add(codewords[g * Chirp.GROUP + row][col])
             }
         }
-        val pauses = IntArray(symbols.size) { i ->
-            if (i < headerEnd) 0 else Chirp.pauseAfter(i - headerEnd)
+        val pauseList = ArrayList<Int>()
+        repeat(symbols.size - 1) { pauseList.add(0) }
+        pauseList.add(Chirp.FIRST_PAUSE)          // after the last header symbol
+        var phraseOpen = false
+        for (i in data2.indices) {
+            if (!phraseOpen) {
+                symbols.add(Chirp.PHRASE_SYNC)
+                pauseList.add(0)
+                phraseOpen = true
+            }
+            symbols.add(data2[i])
+            val pause = Chirp.pauseAfter(i)
+            pauseList.add(pause)
+            if (pause > 0) phraseOpen = false
         }
-        pauses[headerEnd - 1] = 0
+        val pauses = pauseList.toIntArray()
         out.chirps(symbols, pauses)
 
         // A happy "done" whistle.

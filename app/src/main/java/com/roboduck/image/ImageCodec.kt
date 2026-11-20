@@ -21,9 +21,9 @@ import kotlin.math.roundToInt
 
 object ImageCodec {
 
-    /** Keeps a transfer around 1.5-2 minutes. */
-    private const val MAX_BYTES = 2600
-    private const val START_SIDE = 128
+    /** Keeps a transfer around 1.5 minutes. */
+    private const val MAX_BYTES = 1600
+    private const val START_SIDE = 112
 
     fun load(cr: ContentResolver, uri: Uri): Bitmap {
         val source = ImageDecoder.createSource(cr, uri)

@@ -6,12 +6,12 @@
     <string name="stop">Stop</string>
     <string name="ready">Ready</string>
     <string name="preparing">Preparing</string>
-    <string name="sending">Sending %1$d%%</string>
-    <string name="volume_low">" · turn volume up"</string>
+    <string name="sending">Sending %1$d%% · %2$s left</string>
+    <string name="volume_low">Turn volume up</string>
     <string name="sent">Sent</string>
     <string name="stopped">Stopped</string>
     <string name="listening">Listening</string>
-    <string name="receiving">Receiving %1$d%%</string>
+    <string name="receiving">Receiving %1$d%% · %2$s left</string>
     <string name="saved">Saved to Gallery</string>
     <string name="save_failed">Received, could not save</string>
     <string name="errors">Received with errors</string>

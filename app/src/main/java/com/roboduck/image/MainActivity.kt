@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     private var player: Player? = null
     private var recorder: Recorder? = null
     private var lowVolume = false
+    private var totalSeconds = 0.0
 
     // Picture tools: the received picture, the edited version (null = showing the original),
     // and earlier versions for Undo.
@@ -186,6 +187,7 @@ class MainActivity : Activity() {
             }
             val preview = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
             val wave = ChirpEncoder.encode(jpg)
+            totalSeconds = wave.size.toDouble() / com.roboduck.image.modem.Chirp.SAMPLE_RATE
             ui.post {
                 if (mode != Mode.SENDING) return@post
                 setPicture(preview)
@@ -221,8 +223,9 @@ class MainActivity : Activity() {
         if (mode != Mode.SENDING) return
         val pct = (fraction * 100).roundToInt().coerceIn(0, 100)
         progress.progress = pct
-        val text = getString(R.string.sending, pct)
-        setStatus(if (lowVolume) text + getString(R.string.volume_low) else text)
+        // Mention a low volume for the first few seconds only, then show the countdown.
+        if (lowVolume && fraction < 0.06f) setStatus(getString(R.string.volume_low))
+        else setStatus(getString(R.string.sending, pct, timeLeft(fraction)))
     }
 
     // ---------- Receive ----------
@@ -242,12 +245,13 @@ class MainActivity : Activity() {
 
         val listener = object : ChirpDecoder.Listener {
             override fun onStart(bytes: Int) {
+                totalSeconds = com.roboduck.image.modem.Chirp.dataSeconds(bytes)
                 ui.post {
                     if (mode != Mode.RECEIVING) return@post
                     setPicture(null)
                     progress.indeterminate = false
                     progress.progress = 0
-                    setStatus(getString(R.string.receiving, 0))
+                    setStatus(getString(R.string.receiving, 0, timeLeft(0f)))
                     haptic()
                 }
             }
@@ -257,7 +261,7 @@ class MainActivity : Activity() {
                     if (mode != Mode.RECEIVING) return@post
                     val pct = (fraction * 100).roundToInt().coerceIn(0, 100)
                     progress.progress = pct
-                    setStatus(getString(R.string.receiving, pct))
+                    setStatus(getString(R.string.receiving, pct, timeLeft(fraction)))
                 }
             }
 
@@ -466,6 +470,11 @@ class MainActivity : Activity() {
         } else {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    private fun timeLeft(fraction: Float): String {
+        val left = ((1f - fraction) * totalSeconds).roundToInt().coerceAtLeast(0)
+        return String.format(java.util.Locale.US, "%d:%02d", left / 60, left % 60)
     }
 
     private fun setStatus(text: String) {

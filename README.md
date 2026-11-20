@@ -16,7 +16,7 @@ Requires Android 10 or newer.
 
 1. On the receiving phone, tap **Receive**. Allow the microphone.
 2. On the sending phone, turn the media volume up, tap **Send** and pick a picture.
-3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 2 minutes.
+3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 1.5 minutes; the screen shows the time left.
 4. The picture appears line by line and is saved to `Pictures/RoboDuck`.
 5. After a picture arrives, the picture tools appear:
    **Auto**, **Sharpen**, **Smooth**, **Contrast**, **Denoise**, **Undo**,

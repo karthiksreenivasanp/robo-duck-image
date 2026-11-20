@@ -3,6 +3,7 @@ package com.roboduck.image
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Process
 import android.os.SystemClock
 import com.roboduck.image.modem.Chirp
 import kotlin.math.sqrt
@@ -23,6 +24,7 @@ class Player(private val wave: FloatArray, private val cb: Callback) : Thread("p
     }
 
     override fun run() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val rate = Chirp.SAMPLE_RATE
         val minBuf = AudioTrack.getMinBufferSize(
             rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
@@ -42,7 +44,7 @@ class Player(private val wave: FloatArray, private val cb: Callback) : Thread("p
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build()
                 )
-                .setBufferSizeInBytes(maxOf(minBuf, 16384))
+                .setBufferSizeInBytes(maxOf(minBuf * 4, 32768))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
         } catch (e: Exception) {
