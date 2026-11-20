@@ -4,6 +4,11 @@ Send a picture from one Android phone to another using sound only. The picture
 is turned into cute robot chirps, and the other phone listens and turns them back
 into the exact same JPG.
 
+![RoboDuck screens, light mode: ready, sending, receiving, received, Auto clean-up](docs/screens-light.jpg)
+![The same screens in dark mode](docs/screens-dark.jpg)
+
+*Screenshots from the Android emulator check (Pixel 6, Android 14).*
+
 ## Install
 
 On each phone, open
