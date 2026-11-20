@@ -22,6 +22,11 @@
     <style name="NeoChip">
         <item name="android:textAllCaps">true</item>
         <item name="android:textSize">12sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:autoSizeMinTextSize">8sp</item>
+        <item name="android:autoSizeMaxTextSize">12sp</item>
+        <item name="android:autoSizeStepGranularity">0.5sp</item>
         <item name="android:fontFamily">@font/space_grotesk_bold</item>
         <item name="android:letterSpacing">0.03</item>
         <item name="android:textColor">@color/ink</item>

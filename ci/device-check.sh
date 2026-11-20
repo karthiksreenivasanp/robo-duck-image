@@ -5,6 +5,11 @@ set -x
 mkdir -p out
 adb wait-for-device
 adb shell settings put global window_animation_scale 0
+# Slow CI emulators often show "Pixel Launcher isn't responding"; keep such popups
+# off the screenshots.
+adb shell settings put global hide_error_dialogs 1
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
+sleep 20
 adb install -r -g app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell pm grant com.roboduck.image android.permission.RECORD_AUDIO

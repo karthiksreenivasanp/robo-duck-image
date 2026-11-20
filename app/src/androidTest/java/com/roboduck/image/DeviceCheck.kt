@@ -223,6 +223,9 @@ class DeviceCheck {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             fun shot(name: String) {
                 Thread.sleep(1500)
+                // close any system popup (a slow emulator's launcher can show one)
+                inst.uiAutomation.executeShellCommand("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS").close()
+                Thread.sleep(500)
                 val b = inst.uiAutomation.takeScreenshot()
                 savePng("screen-$name$suffix", b)
             }
