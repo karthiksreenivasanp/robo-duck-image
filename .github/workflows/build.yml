@@ -1,0 +1,44 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Rename
+        run: cp app/build/outputs/apk/release/app-release.apk RoboDuck.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RoboDuck
+          path: RoboDuck.apk
+
+      - name: Publish as latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest RoboDuck.apk \
+            --title "RoboDuck (latest build)" \
+            --notes "Built from commit ${GITHUB_SHA::7}. Download RoboDuck.apk on your phone and open it to install."

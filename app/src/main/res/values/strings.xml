@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RoboDuck</string>
+    <string name="send">Send</string>
+    <string name="receive">Receive</string>
+    <string name="stop">Stop</string>
+    <string name="ready">Ready</string>
+    <string name="preparing">Preparing</string>
+    <string name="sending">Sending %1$d%%</string>
+    <string name="volume_low">" · turn volume up"</string>
+    <string name="sent">Sent</string>
+    <string name="stopped">Stopped</string>
+    <string name="listening">Listening</string>
+    <string name="receiving">Receiving %1$d%%</string>
+    <string name="saved">Saved to Gallery</string>
+    <string name="save_failed">Received, could not save</string>
+    <string name="errors">Received with errors</string>
+    <string name="lost">Signal lost. Move closer.</string>
+    <string name="mic_needed">Microphone access needed</string>
+    <string name="mic_failed">Microphone unavailable</string>
+    <string name="open_failed">Could not open image</string>
+</resources>

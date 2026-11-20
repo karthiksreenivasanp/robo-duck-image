@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FAFAFA</color>
+    <color name="surface">#F2F2F2</color>
+    <color name="fg">#111111</color>
+    <color name="muted">#7C7C7C</color>
+    <color name="line">#E2E2E2</color>
+    <color name="ripple">#33888888</color>
+    <color name="icon_bg">#111111</color>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0E0E0E</color>
+    <color name="surface">#161616</color>
+    <color name="fg">#F2F2F2</color>
+    <color name="muted">#7F7F7F</color>
+    <color name="line">#272727</color>
+    <color name="ripple">#33AAAAAA</color>
+</resources>
