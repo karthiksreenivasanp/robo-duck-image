@@ -24,6 +24,7 @@ import com.roboduck.image.enhance.Enhancer
 import com.roboduck.image.enhance.RgbImage
 import com.roboduck.image.modem.ChirpDecoder
 import com.roboduck.image.modem.ChirpEncoder
+import com.roboduck.image.modem.Payload
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
@@ -33,6 +34,7 @@ class MainActivity : Activity() {
 
     private lateinit var image: ImageView
     private lateinit var placeholder: View
+    private lateinit var live: LiveCanvas
     private lateinit var meter: View
     private lateinit var level: LevelView
     private lateinit var progress: NeoProgress
@@ -49,6 +51,7 @@ class MainActivity : Activity() {
     private var recorder: Recorder? = null
     private var lowVolume = false
     private var totalSeconds = 0.0
+    private var expectedBytes = 0
 
     // Picture tools: the received picture, the edited version (null = showing the original),
     // and earlier versions for Undo.
@@ -72,6 +75,7 @@ class MainActivity : Activity() {
         }
         image = findViewById(R.id.image)
         placeholder = findViewById(R.id.placeholder)
+        live = findViewById(R.id.live)
         meter = findViewById(R.id.meter)
         level = findViewById(R.id.level)
         progress = findViewById(R.id.progress)
@@ -176,21 +180,25 @@ class MainActivity : Activity() {
         lowVolume = vol < am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.6
 
         Thread {
-            val jpg = try {
+            val packed = try {
                 ImageCodec.compress(ImageCodec.load(contentResolver, uri))
             } catch (e: Exception) {
                 null
             }
-            if (jpg == null) {
+            if (packed == null) {
                 ui.post { stopAll(getString(R.string.open_failed)) }
                 return@Thread
             }
+            val (jpg, payload) = packed
             val preview = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
-            val wave = ChirpEncoder.encode(jpg)
+            val wave = ChirpEncoder.encode(payload)
             totalSeconds = wave.size.toDouble() / com.roboduck.image.modem.Chirp.SAMPLE_RATE
             ui.post {
                 if (mode != Mode.SENDING) return@post
                 setPicture(preview)
+                showLive(LiveCanvas.Mode.SEND)
+                live.setImage(preview, 1f)
+                live.setProgress(0f)
                 progress.indeterminate = false
                 progress.progress = 0
                 level.active = true
@@ -223,6 +231,7 @@ class MainActivity : Activity() {
         if (mode != Mode.SENDING) return
         val pct = (fraction * 100).roundToInt().coerceIn(0, 100)
         progress.progress = pct
+        live.setProgress(fraction)
         // Mention a low volume for the first few seconds only, then show the countdown.
         if (lowVolume && fraction < 0.06f) setStatus(getString(R.string.volume_low))
         else setStatus(getString(R.string.sending, pct, timeLeft(fraction)))
@@ -239,6 +248,7 @@ class MainActivity : Activity() {
         mode = Mode.RECEIVING
         render()
         setPicture(null)
+        showLive(LiveCanvas.Mode.RECEIVE)
         progress.indeterminate = true
         level.active = true
         setStatus(getString(R.string.listening))
@@ -246,9 +256,11 @@ class MainActivity : Activity() {
         val listener = object : ChirpDecoder.Listener {
             override fun onStart(bytes: Int) {
                 totalSeconds = com.roboduck.image.modem.Chirp.dataSeconds(bytes)
+                expectedBytes = bytes
                 ui.post {
                     if (mode != Mode.RECEIVING) return@post
-                    setPicture(null)
+                    live.setImage(null, 0f)
+                    live.setProgress(0f)
                     progress.indeterminate = false
                     progress.progress = 0
                     setStatus(getString(R.string.receiving, 0, timeLeft(0f)))
@@ -261,19 +273,23 @@ class MainActivity : Activity() {
                     if (mode != Mode.RECEIVING) return@post
                     val pct = (fraction * 100).roundToInt().coerceIn(0, 100)
                     progress.progress = pct
+                    live.setProgress(fraction)
                     setStatus(getString(R.string.receiving, pct, timeLeft(fraction)))
                 }
             }
 
             override fun onPartial(data: ByteArray) {
-                val bmp = decodeQuietly(data) ?: return
-                ui.post { if (mode == Mode.RECEIVING) setPicture(bmp) }
+                val jpg = Payload.unpack(data) ?: return
+                val bmp = decodeQuietly(jpg) ?: return
+                val shown = Payload.visibleFraction(jpg, data.size, expectedBytes) * 0.97f
+                ui.post { if (mode == Mode.RECEIVING) live.setImage(bmp, shown) }
             }
 
             override fun onDone(data: ByteArray, ok: Boolean) {
                 recorder?.cancel()
-                val bmp = decodeQuietly(data)
-                val saved = ok && ImageCodec.save(this@MainActivity, data)
+                val jpg = Payload.unpack(data)
+                val bmp = jpg?.let { decodeQuietly(it) }
+                val saved = ok && jpg != null && ImageCodec.save(this@MainActivity, jpg)
                 ui.post {
                     if (mode != Mode.RECEIVING) return@post
                     if (bmp != null) {
@@ -295,6 +311,10 @@ class MainActivity : Activity() {
                 }
             }
 
+            override fun onWhistle(k: Int) {
+                ui.post { if (mode == Mode.RECEIVING) live.pushWhistle(k) }
+            }
+
             override fun onLost() {
                 ui.post {
                     if (mode != Mode.RECEIVING) return@post
@@ -310,6 +330,10 @@ class MainActivity : Activity() {
             object : Recorder.Callback {
                 override fun onLevel(rms: Float) {
                     ui.post { level.push(rms) }
+                }
+
+                override fun onSpectrum(columns: List<FloatArray>) {
+                    if (columns.isNotEmpty()) ui.post { if (mode == Mode.RECEIVING) live.pushColumns(columns) }
                 }
 
                 override fun onError() {
@@ -449,6 +473,7 @@ class MainActivity : Activity() {
         mode = Mode.IDLE
         progress.indeterminate = false
         level.active = false
+        hideLive()
         render()
         setStatus(message)
     }
@@ -481,11 +506,30 @@ class MainActivity : Activity() {
         status.text = text
     }
 
+    private fun showLive(m: LiveCanvas.Mode) {
+        live.clear()
+        live.mode = m
+        live.visibility = View.VISIBLE
+        placeholder.visibility = View.GONE
+        image.visibility = View.GONE
+    }
+
+    private fun hideLive() {
+        if (live.visibility != View.VISIBLE) return
+        live.visibility = View.GONE
+        if (image.drawable != null) image.visibility = View.VISIBLE
+        else placeholder.visibility = View.VISIBLE
+    }
+
     private fun setPicture(bmp: Bitmap?) {
         if (bmp == null) {
             image.setImageDrawable(null)
             image.visibility = View.GONE
             placeholder.visibility = View.VISIBLE
+            return
+        }
+        if (live.visibility == View.VISIBLE) {
+            image.setImageBitmap(bmp)   // shown when the live view closes
             return
         }
         val first = image.visibility != View.VISIBLE

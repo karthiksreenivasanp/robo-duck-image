@@ -20,6 +20,8 @@ class ChirpDecoder(private val listener: Listener) {
         fun onDone(data: ByteArray, ok: Boolean)
         /** Signal faded out in the middle of a transmission. */
         fun onLost()
+        /** Each whistle as it is heard (for the live display). */
+        fun onWhistle(k: Int) {}
     }
 
     private enum class State { SEARCH, PRE, HEADER, DATA }
@@ -44,6 +46,7 @@ class ChirpDecoder(private val listener: Listener) {
 
     // header/data
     private val collected = ArrayList<Int>()
+    private val confidence = ArrayList<Double>()
     private var byteLen = 0
     private var crc = 0L
     private var cwCount = 0
@@ -71,6 +74,7 @@ class ChirpDecoder(private val listener: Listener) {
     fun stats() = "fixed=$fixedSymbols failedCW=$failedCodewords/$totalCodewords"
 
     fun reset() {
+        confidence.clear()
         state = State.SEARCH
         runK = -1
         runCount = 0
@@ -171,6 +175,7 @@ class ChirpDecoder(private val listener: Listener) {
 
     private fun preamble() {
         val k = readSymbol().k
+        listener.onWhistle(k)
         when {
             k == 0 && !sawA -> {
                 zeros++
@@ -186,7 +191,9 @@ class ChirpDecoder(private val listener: Listener) {
     }
 
     private fun header() {
-        collected.add(readSymbol().k)
+        val hk = readSymbol().k
+        listener.onWhistle(hk)
+        collected.add(hk)
         if (collected.size < Chirp.HEADER_LEN) return
         val h = rs.decode(collected.toIntArray())
         collected.clear()
@@ -232,7 +239,9 @@ class ChirpDecoder(private val listener: Listener) {
     private fun dataStep() {
         if (needResync) { resync(); return }
         val r = readSymbol()
+        listener.onWhistle(r.k)
         collected.add(r.k)
+        confidence.add(r.ratio)
         received++
         val pause = Chirp.pauseAfter(received - 1)
         if (pause > 0) { pos += pause; needResync = true }
@@ -250,7 +259,13 @@ class ChirpDecoder(private val listener: Listener) {
 
         for (row in 0 until size) {
             val cw = IntArray(Chirp.CW_LEN) { col -> collected[col * size + row] }
-            val dec = rs.decode(cw)
+            // Least certain whistles first, as erasures (only those clearly unsure).
+            val unsure = (0 until Chirp.CW_LEN)
+                .filter { col -> confidence[col * size + row] < UNSURE }
+                .sortedBy { col -> confidence[col * size + row] }
+                .take(Chirp.PARITY)
+                .toIntArray()
+            val dec = rs.decode(cw, unsure)
             totalCodewords++
             if (dec == null) failedCodewords++
             else for (i in 0 until Chirp.DATA_PER_CW) if (dec[i] != cw[i]) fixedSymbols++
@@ -259,6 +274,7 @@ class ChirpDecoder(private val listener: Listener) {
             dataCount += Chirp.DATA_PER_CW
         }
         collected.clear()
+        confidence.clear()
         group++
 
         val needed = Chirp.dataSymbolCount(byteLen)
@@ -276,6 +292,7 @@ class ChirpDecoder(private val listener: Listener) {
     companion object {
         private const val STRONG = 7.0
         private const val WEAK = 3.0
+        private const val UNSURE = 4.0
         private const val LOST_AFTER = 40
     }
 }

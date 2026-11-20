@@ -12,6 +12,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import com.roboduck.image.modem.Payload
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -21,9 +22,8 @@ import kotlin.math.roundToInt
 
 object ImageCodec {
 
-    /** Keeps a transfer around 1.5 minutes. */
-    private const val MAX_BYTES = 1600
-    private const val START_SIDE = 112
+    /** Bytes that travel as sound: keeps a transfer around 1.5 minutes. */
+    private const val BUDGET = 1600
 
     fun load(cr: ContentResolver, uri: Uri): Bitmap {
         val source = ImageDecoder.createSource(cr, uri)
@@ -41,20 +41,32 @@ object ImageCodec {
         }
     }
 
-    /** Shrinks and compresses until the JPG fits the size budget. */
-    fun compress(src: Bitmap): ByteArray {
-        var side = START_SIDE
-        var last = ByteArray(0)
-        while (true) {
+    /**
+     * Picks the largest, cleanest JPG whose packed size fits the budget:
+     * tries big sizes first and only lowers the JPG quality down to 50
+     * before trying a smaller size. Returns the JPG and what to send.
+     */
+    fun compress(src: Bitmap): Pair<ByteArray, ByteArray> {
+        var fallback: Pair<ByteArray, ByteArray>? = null
+        for (side in intArrayOf(160, 144, 128, 112, 96, 80, 64)) {
             val scaled = fit(src, side)
-            for (q in intArrayOf(75, 62, 50, 40, 30, 22)) {
+            for (q in intArrayOf(85, 78, 70, 62, 55, 50, 40, 30)) {
                 val out = ByteArrayOutputStream()
                 scaled.compress(Bitmap.CompressFormat.JPEG, q, out)
-                last = out.toByteArray()
-                if (last.size <= MAX_BYTES) return last
+                val jpg = out.toByteArray()
+                val packed = Payload.pack(jpg)
+                if (packed.size <= BUDGET) {
+                    if (q >= 50) return jpg to packed
+                    if (fallback == null) fallback = jpg to packed
+                    break
+                }
             }
-            side = (side * 0.85f).toInt()
-            if (side < 40) return last
+        }
+        return fallback ?: run {
+            val out = ByteArrayOutputStream()
+            fit(src, 48).compress(Bitmap.CompressFormat.JPEG, 30, out)
+            val jpg = out.toByteArray()
+            jpg to Payload.pack(jpg)
         }
     }
 

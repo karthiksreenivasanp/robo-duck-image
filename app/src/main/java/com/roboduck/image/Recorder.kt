@@ -22,6 +22,7 @@ class Recorder(
 
     interface Callback {
         fun onLevel(rms: Float)
+        fun onSpectrum(columns: List<FloatArray>)
         fun onError()
     }
 
@@ -69,6 +70,7 @@ class Recorder(
         )
         effects.forEach { try { it.enabled = false } catch (_: Exception) {} }
 
+        val spectrum = Spectrum()
         val shorts = ShortArray(2048)
         val floats = FloatArray(2048)
         try {
@@ -84,6 +86,7 @@ class Recorder(
                     sum += v * v
                 }
                 cb.onLevel(sqrt(sum / n).toFloat())
+                cb.onSpectrum(spectrum.columns(floats, n))
                 decoder.feed(floats, n)
             }
         } finally {

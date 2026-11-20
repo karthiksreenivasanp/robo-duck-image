@@ -48,7 +48,7 @@ object Chirp {
     const val PARITY = 16
     const val DATA_PER_CW = ReedSolomon64.ORDER - PARITY  // 47
     const val CW_LEN = ReedSolomon64.ORDER                // 63
-    const val GROUP = 8
+    const val GROUP = 2
     const val HEADER_DATA = 10
     const val HEADER_LEN = HEADER_DATA + PARITY           // 26
 

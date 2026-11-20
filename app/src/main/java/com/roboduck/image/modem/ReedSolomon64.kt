@@ -31,19 +31,43 @@ class ReedSolomon64(private val nsym: Int) {
         return out
     }
 
-    /** Returns corrected data symbols, or null if uncorrectable. */
-    fun decode(codeword: IntArray): IntArray? {
+    /**
+     * Returns corrected data symbols, or null if uncorrectable.
+     * [erasures] are positions known to be unreliable; each costs one parity
+     * symbol instead of two, so up to 16 erasures (or 8 errors) can be fixed.
+     */
+    fun decode(codeword: IntArray, erasures: IntArray = IntArray(0)): IntArray? {
+        val result = decodeWith(codeword, erasures)
+        if (result != null || erasures.isEmpty()) return result
+        return decodeWith(codeword, IntArray(0))
+    }
+
+    private fun decodeWith(codeword: IntArray, erasuresIn: IntArray): IntArray? {
+        val erasures = if (erasuresIn.size > nsym) erasuresIn.copyOf(nsym) else erasuresIn
         val msg = codeword.copyOf()
+        for (e in erasures) msg[e] = 0
         val synd = syndromes(msg)
         if (synd.all { it == 0 }) return msg.copyOf(msg.size - nsym)
         return try {
-            val errLoc = findErrorLocator(synd)
+            val fsynd = forneySyndromes(synd, erasures, msg.size)
+            val errLoc = findErrorLocator(fsynd, erasures.size)
             val errPos = findErrors(errLoc.reversedArray(), msg.size) ?: return null
-            val fixed = correctErrata(msg, synd, errPos)
+            val all = (erasures.toList() + errPos.toList()).distinct().toIntArray()
+            val fixed = correctErrata(msg, synd, all)
             if (syndromes(fixed).any { it != 0 }) null else fixed.copyOf(fixed.size - nsym)
         } catch (e: IllegalStateException) {
             null
         }
+    }
+
+    /** Syndromes with the erasures' contribution removed (leading 0 kept, like [syndromes]). */
+    private fun forneySyndromes(synd: IntArray, erasures: IntArray, n: Int): IntArray {
+        val f = synd.copyOfRange(1, synd.size)
+        for (p in erasures) {
+            val x = pow(2, n - 1 - p)
+            for (j in 0 until f.size - 1) f[j] = mul(f[j], x) xor f[j + 1]
+        }
+        return intArrayOf(0) + f
     }
 
     private fun syndromes(msg: IntArray): IntArray {
@@ -52,11 +76,11 @@ class ReedSolomon64(private val nsym: Int) {
         return s
     }
 
-    private fun findErrorLocator(synd: IntArray): IntArray {
+    private fun findErrorLocator(synd: IntArray, eraseCount: Int = 0): IntArray {
         var errLoc = intArrayOf(1)
         var oldLoc = intArrayOf(1)
         val shift = synd.size - nsym
-        for (i in 0 until nsym) {
+        for (i in 0 until nsym - eraseCount) {
             val k = i + shift
             var delta = synd[k]
             for (j in 1 until errLoc.size) {
@@ -76,7 +100,7 @@ class ReedSolomon64(private val nsym: Int) {
         while (start < errLoc.size && errLoc[start] == 0) start++
         errLoc = errLoc.copyOfRange(start, errLoc.size)
         val errs = errLoc.size - 1
-        check(errs * 2 <= nsym) { "too many errors" }
+        check(errs * 2 + eraseCount <= nsym) { "too many errors" }
         return errLoc
     }
 

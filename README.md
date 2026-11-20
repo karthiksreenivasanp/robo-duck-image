@@ -17,7 +17,9 @@ Requires Android 10 or newer.
 1. On the receiving phone, tap **Receive**. Allow the microphone.
 2. On the sending phone, turn the media volume up, tap **Send** and pick a picture.
 3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 1.5 minutes; the screen shows the time left.
-4. The picture appears line by line and is saved to `Pictures/RoboDuck`.
+4. The receiver shows each whistle it hears as a little pixel swoop, and the
+   picture builds up from the top with a lime scan line. It is saved to
+   `Pictures/RoboDuck` when complete.
 5. After a picture arrives, the picture tools appear:
    **Auto**, **Sharpen**, **Smooth**, **Contrast**, **Denoise**, **Undo**,
    **Original** and **Save** (saves the edited copy as `..._edit.jpg`).
@@ -43,13 +45,17 @@ never sent.
 
 ## How it works
 
-- The picture is shrunk to about 128 px and compressed to about 2.5 KB of JPG.
+- The picture is shrunk (up to 160 px) and saved as a JPG of about 2 KB. The
+  standard JPEG tables every phone already knows are left out of the sound
+  (deflate with a shared dictionary, see `modem/Payload.kt`), so about 1.6 KB
+  travels; the receiver rebuilds the exact same JPG.
 - Each 23 ms whistle sweeps up or down through 1.9-6.9 kHz with a slight warble,
   starting at one of 32 points: 1 + 5 = 6 bits per whistle (chirp spread spectrum,
   the same idea LoRa radios use). Whistles come in short phrases with pauses in
   between, which gives the R2-D2 style chatter.
 - Reed-Solomon RS(63,47) over GF(64) fixes up to 8 bad chirps in every 63, and
-  8 codewords are interleaved so a short noise burst is spread out.
+  2 codewords are interleaved so a short noise burst is spread out; unsure
+  whistles are treated as erasures, which cost half as much to repair.
 - The receiver locks onto a preamble, follows clock drift between the phones,
   and checks a CRC32 so it only saves the image if every byte is correct.
 
