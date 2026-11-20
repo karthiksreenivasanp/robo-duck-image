@@ -13,13 +13,15 @@ object ChirpEncoder {
         require(bytes.size in 1..0x3FFFF) { "size out of range" }
         val out = Builder()
 
-        // Friendly "hello" before the data (receiver ignores it).
-        out.sweep(2600.0, 4400.0, 0.07)
+        // A little R2-D2 style "hello" before the data (the receiver ignores it).
+        out.sweep(2300.0, 3600.0, 0.06, vibrato = 0.0)
+        out.silence(0.02)
+        out.sweep(3600.0, 2700.0, 0.07, vibrato = 120.0)
         out.silence(0.03)
-        out.sweep(4400.0, 3000.0, 0.06)
-        out.silence(0.03)
-        out.sweep(3000.0, 5000.0, 0.05)
-        out.silence(0.12)
+        out.sweep(4300.0, 4300.0, 0.08, vibrato = 260.0)
+        out.silence(0.02)
+        out.sweep(2400.0, 6400.0, 0.13, vibrato = 60.0)
+        out.silence(0.15)
 
         val symbols = ArrayList<Int>()
         repeat(Chirp.PREAMBLE) { symbols.add(0) }
@@ -47,6 +49,7 @@ object ChirpEncoder {
             }
             rs.encode(block)
         }
+        val headerEnd = symbols.size
         val groups = (cwCount + Chirp.GROUP - 1) / Chirp.GROUP
         for (g in 0 until groups) {
             val size = Chirp.groupSize(cwCount, g)
@@ -54,14 +57,18 @@ object ChirpEncoder {
                 symbols.add(codewords[g * Chirp.GROUP + row][col])
             }
         }
+        val pauses = IntArray(symbols.size) { i ->
+            if (i < headerEnd) 0 else Chirp.pauseAfter(i - headerEnd)
+        }
+        pauses[headerEnd - 1] = 0
+        out.chirps(symbols, pauses)
 
-        out.chirps(symbols)
-
-        // Little "bye" trill.
-        out.silence(0.08)
-        out.sweep(4800.0, 3200.0, 0.05)
-        out.sweep(3200.0, 4200.0, 0.04)
-        out.sweep(4200.0, 2400.0, 0.09)
+        // A happy "done" whistle.
+        out.silence(0.1)
+        out.sweep(5200.0, 2600.0, 0.12, vibrato = 140.0)
+        out.silence(0.02)
+        out.sweep(3000.0, 3800.0, 0.05, vibrato = 0.0)
+        out.sweep(3800.0, 2000.0, 0.14, vibrato = 90.0)
         out.silence(0.1)
         return out.toArray()
     }
@@ -77,13 +84,13 @@ object ChirpEncoder {
 
         fun silence(sec: Double) = repeat((sec * Chirp.SAMPLE_RATE).toInt()) { add(0f) }
 
-        fun sweep(f0: Double, f1: Double, sec: Double) {
+        fun sweep(f0: Double, f1: Double, sec: Double, vibrato: Double = 0.0) {
             val n = (sec * Chirp.SAMPLE_RATE).toInt()
             val fade = minOf(n / 4, 200)
             var phase = 0.0
             for (i in 0 until n) {
                 val t = i.toDouble() / n
-                val f = f0 + (f1 - f0) * t
+                val f = f0 + (f1 - f0) * t + vibrato * sin(2 * PI * 38.0 * i / Chirp.SAMPLE_RATE)
                 var env = 1.0
                 if (i < fade) env = i.toDouble() / fade
                 if (n - 1 - i < fade) env = (n - 1 - i).toDouble() / fade
@@ -92,20 +99,25 @@ object ChirpEncoder {
             }
         }
 
-        fun chirps(symbols: List<Int>) {
+        /** Whistles back to back; [pauses] gives silence (samples) after each one. */
+        fun chirps(symbols: List<Int>, pauses: IntArray) {
             var phase = 0.0
-            val total = symbols.size * Chirp.L
-            val fade = 220
-            var i = 0
-            for (k in symbols) {
+            var start = 0 // index of the first whistle in the current phrase
+            for (i in symbols.indices) {
+                val k = symbols[i]
+                val phraseStart = i == start
+                val phraseEnd = pauses[i] > 0 || i == symbols.size - 1
                 for (n in 0 until Chirp.L) {
                     var env = 1.0
-                    if (i < fade) env = i.toDouble() / fade
-                    if (total - 1 - i < fade) env = (total - 1 - i).toDouble() / fade
+                    if (phraseStart && n < Chirp.FADE) env = n.toDouble() / Chirp.FADE
+                    if (phraseEnd && Chirp.L - 1 - n < Chirp.FADE) env = (Chirp.L - 1 - n).toDouble() / Chirp.FADE
                     add((sin(phase) * env * AMP).toFloat())
                     phase += 2 * PI * Chirp.freq(k, n) / Chirp.SAMPLE_RATE
                     if (phase > 2 * PI) phase -= 2 * PI
-                    i++
+                }
+                if (pauses[i] > 0) {
+                    repeat(pauses[i]) { add(0f) }
+                    start = i + 1
                 }
             }
         }

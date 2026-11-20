@@ -16,7 +16,7 @@ Requires Android 10 or newer.
 
 1. On the receiving phone, tap **Receive**. Allow the microphone.
 2. On the sending phone, turn the media volume up, tap **Send** and pick a picture.
-3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 1-2 minutes.
+3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 2 minutes.
 4. The picture appears line by line and is saved to `Pictures/RoboDuck`.
 5. After a picture arrives, the picture tools appear:
    **Auto**, **Sharpen**, **Smooth**, **Contrast**, **Denoise**, **Undo**,
@@ -44,8 +44,10 @@ never sent.
 ## How it works
 
 - The picture is shrunk to about 128 px and compressed to about 2.5 KB of JPG.
-- Each 23 ms chirp sweeps up through 2.1-4.9 kHz, starting from one of 64 offsets,
-  so it carries 6 bits (chirp spread spectrum, the same idea LoRa radios use).
+- Each 23 ms whistle sweeps up or down through 1.9-6.9 kHz with a slight warble,
+  starting at one of 32 points: 1 + 5 = 6 bits per whistle (chirp spread spectrum,
+  the same idea LoRa radios use). Whistles come in short phrases with pauses in
+  between, which gives the R2-D2 style chatter.
 - Reed-Solomon RS(63,47) over GF(64) fixes up to 8 bad chirps in every 63, and
   8 codewords are interleaved so a short noise burst is spread out.
 - The receiver locks onto a preamble, follows clock drift between the phones,

@@ -83,7 +83,7 @@ class ChirpDecoder(private val listener: Listener) {
     }
 
     private fun discardBefore(abs: Int) {
-        val drop = abs - base
+        val drop = minOf(abs - base, len)
         if (drop > 0 && drop > len / 2) {
             System.arraycopy(data, drop, data, 0, len - drop)
             base += drop
@@ -124,7 +124,8 @@ class ChirpDecoder(private val listener: Listener) {
 
     private fun search() {
         val r = analyze(pos)
-        val strong = r.ratio > STRONG
+        // The preamble is rising whistles; seen out of step they still look rising.
+        val strong = r.ratio > STRONG && r.k < Chirp.SHIFTS
         if (strong && r.k == runK) {
             runCount++
         } else {
@@ -135,7 +136,7 @@ class ChirpDecoder(private val listener: Listener) {
             val s = pos - Chirp.STEP * runK
             var bestD = 0
             var bestE = -1.0
-            for (d in -12..12) {
+            for (d in -(Chirp.STEP / 2 + 4)..(Chirp.STEP / 2 + 4)) {
                 val e = energy(0, s + d)
                 if (e > bestE) { bestE = e; bestD = d }
             }
@@ -203,6 +204,7 @@ class ChirpDecoder(private val listener: Listener) {
         val r = readSymbol()
         collected.add(r.k)
         received++
+        pos += Chirp.pauseAfter(received - 1)
         weakRun = if (r.ratio < WEAK) weakRun + 1 else 0
         if (weakRun >= LOST_AFTER) {
             listener.onLost()
@@ -237,7 +239,7 @@ class ChirpDecoder(private val listener: Listener) {
     }
 
     companion object {
-        private const val STRONG = 9.0
+        private const val STRONG = 7.0
         private const val WEAK = 3.0
         private const val LOST_AFTER = 40
     }
