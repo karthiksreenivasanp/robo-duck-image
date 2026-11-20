@@ -1,11 +1,11 @@
 package com.roboduck.image.modem
 
 /**
- * Reed-Solomon codec over GF(64) (6-bit symbols), so one chirp symbol
- * maps to exactly one code symbol. Primitive polynomial x^6 + x + 1.
- * Codeword length (data + parity) must be <= 63.
+ * Reed-Solomon codec over GF(128) (7-bit symbols), so one whistle maps to
+ * exactly one code symbol. Primitive polynomial x^7 + x^3 + 1.
+ * Codeword length (data + parity) must be <= 127.
  */
-class ReedSolomon64(private val nsym: Int) {
+class ReedSolomon(private val nsym: Int) {
 
     private val generator: IntArray
 
@@ -34,7 +34,7 @@ class ReedSolomon64(private val nsym: Int) {
     /**
      * Returns corrected data symbols, or null if uncorrectable.
      * [erasures] are positions known to be unreliable; each costs one parity
-     * symbol instead of two, so up to 16 erasures (or 8 errors) can be fixed.
+     * symbol instead of two, so up to [nsym] erasures (or [nsym]/2 errors) can be fixed.
      */
     fun decode(codeword: IntArray, erasures: IntArray = IntArray(0)): IntArray? {
         val result = decodeWith(codeword, erasures)
@@ -42,8 +42,28 @@ class ReedSolomon64(private val nsym: Int) {
         return decodeWith(codeword, IntArray(0))
     }
 
+    /**
+     * All plausible decodings, most trustworthy first, as (data, trust) with
+     * lower trust = better: errors-only decoding (almost never wrong), then
+     * using all [erasures], then using only the least certain half of them.
+     * Heavy erasure use leaves little room to catch a wrong "repair", so the
+     * caller should confirm with a checksum when it can.
+     */
+    fun decodeAll(codeword: IntArray, erasures: IntArray): List<Pair<IntArray, Int>> {
+        val out = ArrayList<Pair<IntArray, Int>>()
+        fun addIf(d: IntArray?, trust: Int) {
+            if (d != null && out.none { it.first.contentEquals(d) }) out.add(d to trust)
+        }
+        addIf(decodeWith(codeword, IntArray(0)), 0)
+        if (erasures.isNotEmpty()) {
+            addIf(decodeWith(codeword, erasures), 1)
+            if (erasures.size > 1) addIf(decodeWith(codeword, erasures.copyOf(erasures.size / 2)), 2)
+        }
+        return out
+    }
+
     private fun decodeWith(codeword: IntArray, erasuresIn: IntArray): IntArray? {
-        val erasures = if (erasuresIn.size > nsym) erasuresIn.copyOf(nsym) else erasuresIn
+        val erasures = if (erasuresIn.size > nsym - MARGIN) erasuresIn.copyOf(nsym - MARGIN) else erasuresIn
         val msg = codeword.copyOf()
         for (e in erasures) msg[e] = 0
         val synd = syndromes(msg)
@@ -52,6 +72,9 @@ class ReedSolomon64(private val nsym: Int) {
             val fsynd = forneySyndromes(synd, erasures, msg.size)
             val errLoc = findErrorLocator(fsynd, erasures.size)
             val errPos = findErrors(errLoc.reversedArray(), msg.size) ?: return null
+            // With erasures, keep a few parity symbols unused as a safety margin: using
+            // all of them would always "succeed", even on a block that is beyond repair.
+            if (erasures.isNotEmpty() && 2 * errPos.size + erasures.size > nsym - MARGIN) return null
             val all = (erasures.toList() + errPos.toList()).distinct().toIntArray()
             val fixed = correctErrata(msg, synd, all)
             if (syndromes(fixed).any { it != 0 }) null else fixed.copyOf(fixed.size - nsym)
@@ -148,7 +171,9 @@ class ReedSolomon64(private val nsym: Int) {
     }
 
     companion object {
-        const val ORDER = 63
+        const val ORDER = 127
+        private const val MARGIN = 4
+        private const val PRIM = 0x89 // x^7 + x^3 + 1
         private val EXP = IntArray(ORDER * 2)
         private val LOG = IntArray(ORDER + 1)
 
@@ -158,7 +183,7 @@ class ReedSolomon64(private val nsym: Int) {
                 EXP[i] = x
                 LOG[x] = i
                 x = x shl 1
-                if (x and 0x40 != 0) x = x xor 0x43
+                if (x and 0x80 != 0) x = x xor PRIM
             }
             for (i in ORDER until ORDER * 2) EXP[i] = EXP[i - ORDER]
         }

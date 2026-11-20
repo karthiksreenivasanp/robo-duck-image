@@ -24,6 +24,7 @@ import com.roboduck.image.enhance.Enhancer
 import com.roboduck.image.enhance.RgbImage
 import com.roboduck.image.modem.ChirpDecoder
 import com.roboduck.image.modem.ChirpEncoder
+import com.roboduck.image.modem.GapMemory
 import com.roboduck.image.modem.Payload
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
@@ -50,6 +51,10 @@ class MainActivity : Activity() {
     private var player: Player? = null
     private var recorder: Recorder? = null
     private var lowVolume = false
+
+    // Parts of a picture that arrived, kept while the app is open so a resend fills the gaps.
+    private val gaps = GapMemory()
+    @Volatile private var decoder: ChirpDecoder? = null
     private var totalSeconds = 0.0
     private var expectedBytes = 0
 
@@ -177,7 +182,7 @@ class MainActivity : Activity() {
         setStatus(getString(R.string.preparing))
         val am = getSystemService(AudioManager::class.java)
         val vol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-        lowVolume = vol < am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.6
+        lowVolume = vol < am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.4
 
         Thread {
             val packed = try {
@@ -189,9 +194,8 @@ class MainActivity : Activity() {
                 ui.post { stopAll(getString(R.string.open_failed)) }
                 return@Thread
             }
-            val (jpg, payload) = packed
-            val preview = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
-            val wave = ChirpEncoder.encode(payload)
+            val preview = packed.preview
+            val wave = ChirpEncoder.encode(packed.payload)
             totalSeconds = wave.size.toDouble() / com.roboduck.image.modem.Chirp.SAMPLE_RATE
             ui.post {
                 if (mode != Mode.SENDING) return@post
@@ -279,17 +283,31 @@ class MainActivity : Activity() {
             }
 
             override fun onPartial(data: ByteArray) {
-                val jpg = Payload.unpack(data) ?: return
-                val bmp = decodeQuietly(jpg) ?: return
-                val shown = Payload.visibleFraction(jpg, data.size, expectedBytes) * 0.97f
+                val img = Payload.unpack(data) ?: return
+                val bmp = ImageCodec.decodePartial(img) ?: return
+                val shown = Payload.visibleFraction(img, data.size, expectedBytes) * 0.97f
                 ui.post { if (mode == Mode.RECEIVING) live.setImage(bmp, shown) }
             }
 
             override fun onDone(data: ByteArray, ok: Boolean) {
+                val img = Payload.unpack(data)
+                if (!ok) {
+                    // Keep listening: the same picture sent again fills the gaps.
+                    val partial = img?.let { ImageCodec.decodePartial(it) }
+                    ui.post {
+                        if (mode != Mode.RECEIVING) return@post
+                        if (partial != null) live.setImage(partial, 1f)
+                        progress.indeterminate = true
+                        setStatus(getString(R.string.missed))
+                        haptic()
+                    }
+                    return
+                }
                 recorder?.cancel()
-                val jpg = Payload.unpack(data)
-                val bmp = jpg?.let { decodeQuietly(it) }
-                val saved = ok && jpg != null && ImageCodec.save(this@MainActivity, jpg)
+                val filled = (decoder?.filledFromEarlier ?: 0) > 0
+                val bmp = img?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                val jpg = img?.let { ImageCodec.toJpeg(it) }
+                val saved = jpg != null && ImageCodec.save(this@MainActivity, jpg)
                 ui.post {
                     if (mode != Mode.RECEIVING) return@post
                     if (bmp != null) {
@@ -301,9 +319,9 @@ class MainActivity : Activity() {
                     finishMode(
                         getString(
                             when {
+                                saved && filled -> R.string.saved_filled
                                 saved -> R.string.saved
-                                ok -> R.string.save_failed
-                                else -> R.string.errors
+                                else -> R.string.save_failed
                             }
                         )
                     )
@@ -324,9 +342,11 @@ class MainActivity : Activity() {
             }
         }
 
+        val dec = ChirpDecoder(listener, gaps)
+        decoder = dec
         val r = Recorder(
             getSystemService(AudioManager::class.java),
-            ChirpDecoder(listener),
+            dec,
             object : Recorder.Callback {
                 override fun onLevel(rms: Float) {
                     ui.post { level.push(rms) }
@@ -548,10 +568,45 @@ class MainActivity : Activity() {
         status.performHapticFeedback(c)
     }
 
-    private fun decodeQuietly(data: ByteArray): Bitmap? = try {
-        BitmapFactory.decodeByteArray(data, 0, data.size)
-    } catch (e: Exception) {
-        null
+    // ---------- Hooks for the on-device check (puts the screen in each state for screenshots) ----------
+
+    internal fun demoSending(preview: Bitmap, fraction: Float) {
+        mode = Mode.SENDING
+        render()
+        setPicture(preview)
+        showLive(LiveCanvas.Mode.SEND)
+        live.setImage(preview, 1f)
+        totalSeconds = 64.0
+        level.active = true
+        repeat(32) { level.push(0.02f + 0.03f * (it % 7)) }
+        progress.indeterminate = false
+        showSendProgress(fraction)
+    }
+
+    internal fun demoReceiving(partial: Bitmap, fraction: Float, whistles: IntArray) {
+        mode = Mode.RECEIVING
+        render()
+        setPicture(null)
+        showLive(LiveCanvas.Mode.RECEIVE)
+        totalSeconds = 64.0
+        level.active = true
+        repeat(32) { level.push(0.01f + 0.02f * ((it * 3) % 7)) }
+        whistles.forEach { live.pushWhistle(it) }
+        live.setImage(partial, fraction)
+        live.setProgress(fraction)
+        progress.indeterminate = false
+        val pct = (fraction * 100).roundToInt()
+        progress.progress = pct
+        setStatus(getString(R.string.receiving, pct, timeLeft(fraction)))
+    }
+
+    internal fun demoReceived(bmp: Bitmap) {
+        mode = Mode.RECEIVING
+        setPicture(bmp)
+        originalBitmap = bmp
+        original = toRgb(bmp)
+        progress.progress = 100
+        finishMode(getString(R.string.saved))
     }
 
     companion object {

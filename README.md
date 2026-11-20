@@ -15,12 +15,14 @@ Requires Android 10 or newer.
 ## Use
 
 1. On the receiving phone, tap **Receive**. Allow the microphone.
-2. On the sending phone, turn the media volume up, tap **Send** and pick a picture.
-3. Hold the phones 10-50 cm apart in a quiet room. A transfer takes about 1.5 minutes; the screen shows the time left.
-4. The receiver shows each whistle it hears as a little pixel swoop, and the
-   picture builds up from the top with a lime scan line. It is saved to
-   `Pictures/RoboDuck` when complete.
-5. After a picture arrives, the picture tools appear:
+2. On the sending phone, tap **Send** and pick a picture.
+3. Hold the phones 10-50 cm apart. A transfer takes about a minute; the screen
+   shows the time left.
+4. The receiver shows each note it hears as a little pixel swoop and the
+   picture building up from the top. It is saved to `Pictures/RoboDuck` (JPG).
+5. If a few parts were missed (someone talked loudly, say), the receiver keeps
+   listening: send the same picture again and only the gaps get filled.
+6. After a picture arrives, the picture tools appear:
    **Auto**, **Sharpen**, **Smooth**, **Contrast**, **Denoise**, **Undo**,
    **Original** and **Save** (saves the edited copy as `..._edit.jpg`).
 
@@ -45,22 +47,36 @@ never sent.
 
 ## How it works
 
-- The picture is shrunk (up to 160 px) and saved as a JPG of about 2 KB. The
-  standard JPEG tables every phone already knows are left out of the sound
-  (deflate with a shared dictionary, see `modem/Payload.kt`), so about 1.6 KB
-  travels; the receiver rebuilds the exact same JPG.
-- Each 23 ms whistle sweeps up or down through 1.9-6.9 kHz with a slight warble,
-  starting at one of 32 points: 1 + 5 = 6 bits per whistle (chirp spread spectrum,
-  the same idea LoRa radios use). Whistles come in short phrases with pauses in
-  between, which gives the R2-D2 style chatter.
-- Reed-Solomon RS(63,47) over GF(64) fixes up to 8 bad chirps in every 63, and
-  2 codewords are interleaved so a short noise burst is spread out; unsure
-  whistles are treated as erasures, which cost half as much to repair.
-- The receiver locks onto a preamble, follows clock drift between the phones,
-  and checks a CRC32 so it only saves the image if every byte is correct.
+- **Picture:** shrunk and saved as WebP (about 25% smaller than JPEG at the
+  same quality). The app tries several sizes, each at the best quality that
+  fits 1.2 KB, and keeps the one that looks most like the original (SSIM).
+  The receiver gets exactly that picture and saves it as a JPG.
+- **Sound:** each note is a 23 ms "wee-oo" swoop between 1.4 and 4.8 kHz with a
+  slight warble, starting at one of 128 points of the swoop (7 bits per note,
+  chirp spread spectrum). Notes are joined by 2 ms pitch glides, so phrases are
+  smooth and click-free, and phrases are separated by short breaths, R2-D2 style.
+- **Staying in step:** every phrase opens with the same note; the receiver
+  re-locks on it (taking the earliest sharp match, and ignoring matches that
+  don't stand out from noise), and tracks clock drift between the phones.
+- **Repairs:** Reed-Solomon RS(127,99) over GF(128). Blocks go out 4 at a time,
+  interleaved note by note but in picture order, so a burst of noise is spread
+  thin and the picture still builds from the top. Unsure notes (much weaker
+  than usual, or right after an audio skip) are treated as erasures. A CRC32
+  checks the result; if a block is still missing, the receiver keeps the good
+  blocks and fills the gaps from the next send of the same picture.
 
-Code: `app/src/main/java/com/roboduck/image/modem` is the sound modem (plain Kotlin,
-no Android dependencies); the rest is the screen and audio input/output.
+Code: `app/src/main/java/com/roboduck/image/modem` is the sound modem (plain
+Kotlin, no Android dependencies); the rest is the screen and audio.
+
+## Checks
+
+- Simulations (noise, rooms with long echo, clock drift, audio skips, loud
+  bursts, false alarms) run on a computer against the modem code.
+- `app/src/androidTest/.../DeviceCheck.kt` runs on an Android emulator on every
+  push (`.github/workflows/device-check.yml`): Android's own WebP encoder and
+  partial decoder, a full sound round trip on the device, the ImageJ tools,
+  speaker and microphone start-up, and screenshots in light and dark mode. The
+  report and screenshots are published as the `device-check` release.
 
 ## Build
 

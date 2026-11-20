@@ -14,7 +14,8 @@
     <string name="receiving">Receiving %1$d%% · %2$s left</string>
     <string name="saved">Saved to Gallery</string>
     <string name="save_failed">Received, could not save</string>
-    <string name="errors">Received with errors</string>
+    <string name="missed">Missed a few parts. Send it again to fill the gaps.</string>
+    <string name="saved_filled">Saved to Gallery · gaps filled</string>
     <string name="lost">Signal lost. Move closer.</string>
     <string name="mic_needed">Microphone access needed</string>
     <string name="mic_failed">Microphone unavailable</string>
